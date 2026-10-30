@@ -1,102 +1,70 @@
 import { PROJECT_STAGE_OPTIONS } from "@/content/copy";
-import { Icon } from "@/components/ui/Icon";
 
 /**
- * Сцена 7 — главный CTA. Фаза 1: разметка формы.
- * Фаза 7: отправка в Route Handler → Google Sheets webhook, валидация, аналитика.
+ * Главный CTA. Сейчас — разметка; отправка в Route Handler, валидация и аналитика — фаза 7.
+ * Никаких выдуманных цифр и отзывов: честный блок доверия.
  */
+const field =
+  "h-14 w-full border-0 border-b border-hair-strong bg-transparent px-0 text-[16px] font-light text-ivory placeholder:text-ivory-40 focus:border-ivory focus:outline-none transition-colors";
+
 export function EarlyAccess() {
   return (
-    <section id="access" aria-labelledby="access-title" className="relative overflow-hidden py-20 lg:py-28">
-      <div
-        className="pointer-events-none absolute inset-0 -z-10"
-        aria-hidden
-        style={{ background: "radial-gradient(50% 60% at 30% 60%, rgba(255,201,60,.10), transparent 70%)" }}
-      />
-      <div className="container-x grid gap-6 lg:grid-cols-[1.2fr_1fr] lg:gap-8">
-        <div className="glass rounded-[var(--radius-lg)] p-6 sm:p-10">
-          <p className="eyebrow mb-3">Ранний доступ</p>
-          <h2 id="access-title" className="font-display text-[clamp(26px,3.4vw,40px)] font-semibold leading-tight tracking-tight">
-            Сейчас набираем первую когорту фаундеров
+    <section id="access" aria-labelledby="access-title" className="relative border-t border-hair py-24 lg:py-36">
+      <div className="container-x grid gap-16 lg:grid-cols-[1.1fr_1fr] lg:gap-24">
+        <div>
+          <p className="caps mb-5">Ранний доступ</p>
+          <h2 id="access-title" className="serif text-[clamp(40px,5.4vw,76px)] leading-[0.98]">
+            Набираем первую <em>когорту</em> фаундеров
           </h2>
-          <p className="mt-3 text-ink-2">Оставьте контакт — напишем, когда откроем доступ, и спросим, что для вас важнее всего.</p>
+          <p className="mt-6 max-w-[44ch] text-[15px] leading-relaxed text-ivory-60">
+            Оставьте контакт — напишем, когда откроем доступ, и спросим, что для вас важнее всего.
+          </p>
 
-          <form className="mt-8 grid gap-4" noValidate>
-            <div className="grid gap-1.5">
-              <label htmlFor="ea-contact" className="text-sm text-ink-2">
-                Email или Telegram
-              </label>
-              <input
-                id="ea-contact"
-                name="contact"
-                required
-                autoComplete="email"
-                placeholder="you@mail.ru или @username"
-                className="h-12 rounded-xl border border-line-strong bg-void/60 px-4 text-ink placeholder:text-ink-3 focus:border-sun focus:outline-none"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <label htmlFor="ea-stage" className="text-sm text-ink-2">
-                На какой стадии проект
-              </label>
-              <select
-                id="ea-stage"
-                name="stage"
-                defaultValue=""
-                className="h-12 appearance-none rounded-xl border border-line-strong bg-void/60 px-4 text-ink focus:border-sun focus:outline-none"
-              >
-                <option value="" disabled>
-                  Выберите стадию
-                </option>
-                {PROJECT_STAGE_OPTIONS.map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1.5">
-              <label htmlFor="ea-pain" className="text-sm text-ink-2">
-                Что сейчас самое трудное
-              </label>
-              <input
-                id="ea-pain"
-                name="pain"
-                maxLength={160}
-                placeholder="Одной строкой"
-                className="h-12 rounded-xl border border-line-strong bg-void/60 px-4 text-ink placeholder:text-ink-3 focus:border-sun focus:outline-none"
-              />
-            </div>
-            <button type="submit" className="btn-sun mt-2 w-full sm:w-auto sm:justify-self-start">
-              Хочу ранний доступ
-            </button>
-            <p className="text-xs text-ink-3">Только для связи о запуске. Без рассылок.</p>
-          </form>
-        </div>
-
-        <aside className="flex flex-col gap-6 rounded-[var(--radius-lg)] border border-sun/30 bg-sun/[0.05] p-6 sm:p-10" aria-labelledby="cohort-title">
-          <div>
-            <p className="eyebrow mb-3 !text-sun">Первая когорта</p>
-            <h3 id="cohort-title" className="font-display text-2xl font-semibold leading-tight">
-              Забронировать место
-            </h3>
-            <p className="mt-3 leading-relaxed text-ink-2">
-              Работаем с небольшой группой фаундеров вручную: созвоны с командой, ранние версии Ментора и влияние на то, что мы строим.
+          <div className="mt-14 rounded-[28px] border border-sun/40 p-7 sm:p-9" style={{ background: "radial-gradient(120% 100% at 0% 0%, rgba(255,213,79,.08), transparent 60%)" }}>
+            <h3 className="serif text-[30px] leading-none">Забронировать место</h3>
+            <p className="mt-4 max-w-[46ch] text-[14px] leading-relaxed text-ivory-60">
+              Небольшая группа, ручной онбординг, ранние версии всех агентов и цена первой когорты навсегда.
             </p>
-          </div>
-          <ul className="space-y-3 text-sm">
-            {["Личный онбординг и разбор идеи", "Ранний доступ ко всем агентам", "Цена первой когорты навсегда"].map((t) => (
-              <li key={t} className="flex items-start gap-2.5">
-                <Icon name="check" size={18} className="mt-0.5 shrink-0 text-sun" />
-                {t}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-auto">
-            <button type="button" className="btn-ghost w-full border-sun/50 text-sun hover:bg-sun/10">
+            <button type="button" className="btn-atelier mt-7 border-sun/60 text-sun">
               Забронировать место в первой когорте
             </button>
-            <p className="mt-3 text-xs leading-relaxed text-ink-3">Оплата сейчас не списывается. Мы свяжемся для подтверждения.</p>
+            <p className="mt-4 text-[12px] text-ivory-40">Оплата сейчас не списывается. Мы свяжемся для подтверждения.</p>
           </div>
-        </aside>
+        </div>
+
+        <form className="flex flex-col gap-8 lg:pt-24" noValidate>
+          <div>
+            <label htmlFor="ea-contact" className="caps">
+              Email или Telegram
+            </label>
+            <input id="ea-contact" name="contact" required autoComplete="email" placeholder="you@mail.ru или @username" className={field} />
+          </div>
+          <div>
+            <label htmlFor="ea-stage" className="caps">
+              Стадия проекта
+            </label>
+            <select id="ea-stage" name="stage" defaultValue="" className={`${field} appearance-none`}>
+              <option value="" disabled>
+                Выберите
+              </option>
+              {PROJECT_STAGE_OPTIONS.map((o) => (
+                <option key={o} className="bg-graphite">
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="ea-pain" className="caps">
+              Что сейчас самое трудное
+            </label>
+            <input id="ea-pain" name="pain" maxLength={160} placeholder="Одной строкой" className={field} />
+          </div>
+          <button type="submit" className="btn-atelier btn-atelier--sun mt-2 self-start">
+            Хочу ранний доступ
+          </button>
+          <p className="text-[12px] text-ivory-40">Только для связи о запуске. Без рассылок.</p>
+        </form>
       </div>
     </section>
   );

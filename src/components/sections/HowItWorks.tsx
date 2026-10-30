@@ -1,38 +1,34 @@
 import { HOW_STEPS } from "@/content/copy";
-import { GraphPreview } from "./GraphPreview";
 
 /**
- * Сцена 5 — скролл-сторителлинг.
- * Фаза 1: sticky-визуал + список шагов. В фазе 6 — GSAP pin, граф собирается по шагам.
+ * Скролл-сторителлинг. Сейчас — разметка и позиции блоков;
+ * GSAP-пин и сборка графа по шагам — фаза 6.
  */
 export function HowItWorks() {
   return (
-    <section id="how" aria-labelledby="how-title" className="relative py-20 lg:py-28">
-      <div className="container-x">
-        <header className="mb-12 max-w-[60ch]">
-          <p className="eyebrow mb-3">Как это работает</p>
-          <h2 id="how-title" className="font-display text-[clamp(26px,3.6vw,44px)] font-semibold leading-tight tracking-tight">
-            Сначала доказательства, потом код
+    <section id="how" aria-labelledby="how-title" className="relative border-t border-hair py-24 lg:py-36">
+      <div className="container-x grid gap-14 lg:grid-cols-[1fr_1.2fr] lg:gap-24">
+        <header className="lg:sticky lg:top-32 lg:self-start">
+          <p className="caps mb-5">Метод</p>
+          <h2 id="how-title" className="serif text-[clamp(40px,5.4vw,76px)] leading-[0.98]">
+            Сначала доказательства, <em>потом код</em>
           </h2>
+          <p className="mt-6 max-w-[42ch] text-[15px] leading-relaxed text-ivory-60">
+            Жизненный цикл продукта — это последовательность рисков. Ментор снимает их по порядку и не даёт перепрыгнуть через этап.
+          </p>
         </header>
 
-        <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
-          <div className="lg:sticky lg:top-28 lg:h-[min(70vh,560px)]" aria-hidden>
-            <div className="glass h-full overflow-hidden rounded-[var(--radius-lg)]">
-              <GraphPreview className="h-[280px] w-full lg:h-full" />
-            </div>
-          </div>
-
-          <ol className="flex flex-col gap-6 lg:gap-[22vh] lg:py-[10vh]">
-            {HOW_STEPS.map((s) => (
-              <li key={s.n} className="max-w-[46ch]">
-                <span className="font-display text-sm text-sun">{s.n}</span>
-                <h3 className="font-display mt-2 text-[clamp(20px,2.2vw,28px)] font-semibold leading-tight">{s.title}</h3>
-                <p className="mt-3 leading-relaxed text-ink-2">{s.text}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <ol className="divide-y divide-hair border-y border-hair">
+          {HOW_STEPS.map((s) => (
+            <li key={s.n} className="grid grid-cols-[56px_1fr] gap-4 py-10 sm:grid-cols-[96px_1fr] sm:py-12">
+              <span className="serif text-[clamp(28px,3vw,40px)] italic text-ivory-40">{s.n}</span>
+              <div>
+                <h3 className="serif text-[clamp(26px,2.6vw,36px)] leading-tight">{s.title}</h3>
+                <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-ivory-60">{s.text}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );

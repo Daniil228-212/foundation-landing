@@ -145,14 +145,6 @@ export function Mascot({ className, gaze = { x: 0, y: 0 }, title = "Фундик
         <ellipse data-part="blush-r" cx={292} cy={266} rx={22} ry={13} fill={C.blush} opacity={0.42} />
       </g>
 
-      {/* хохолок — три завитка */}
-      <g data-part="tuft" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ transformBox: "fill-box", transformOrigin: "50% 100%" }}>
-        <path d="M196 82 C 180 44, 204 16, 230 24 C 246 30, 244 52, 228 54 C 216 55, 214 44, 222 41" stroke={C.tuft} strokeWidth={12} />
-        <path d="M188 84 C 170 64, 152 60, 140 68" stroke={C.tuft} strokeWidth={9} />
-        <path d="M208 82 C 218 64, 236 62, 246 72" stroke={C.tuft} strokeWidth={8} />
-        <path d="M196 82 C 180 44, 204 16, 230 24" stroke="#ffe08a" strokeWidth={3} opacity={0.7} />
-      </g>
-
       {/* глаза + веки */}
       <g data-part="eyes">
         <Eye cx={150} side="l" gaze={gaze} />

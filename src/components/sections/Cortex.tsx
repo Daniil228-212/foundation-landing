@@ -1,215 +1,264 @@
-import { NEXUSES, NODE_STATUS } from "@/content/nexus";
-import { Icon } from "@/components/ui/Icon";
-import { GraphPreview } from "./GraphPreview";
+"use client";
 
-function Block({
-  title,
-  icon,
-  children,
-  className = "",
-}: {
-  title: string;
-  icon: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
+import { motion } from "framer-motion";
+import { useMemo } from "react";
+import { AGENTS } from "@/content/agents";
+import { NEXUSES, NODE_STATUS, type NexusId } from "@/content/nexus";
+import { nexusFill, type CortexNode } from "@/lib/mentorScript";
+import { useFoundation } from "@/store/foundation";
+
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+/* детерминированный ГПСЧ — одинаковая раскладка на сервере и клиенте */
+function rng(seed: number) {
+  return () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+}
+
+const W = 1000;
+const H = 560;
+const CENTERS: Record<NexusId, { x: number; y: number; r: number }> = {
+  market: { x: 210, y: 190, r: 150 },
+  product: { x: 520, y: 330, r: 165 },
+  growth: { x: 810, y: 180, r: 140 },
+  ops: { x: 820, y: 430, r: 110 },
+  tech: { x: 260, y: 440, r: 95 },
+};
+
+type Dot = { x: number; y: number; r: number };
+
+function cluster(id: NexusId, n: number): { dots: Dot[]; edges: [number, number][] } {
+  const c = CENTERS[id];
+  const rand = rng(id.length * 9973 + c.x);
+  const dots: Dot[] = [];
+  for (let i = 0; i < n; i++) {
+    // органичная «туманность»: радиус с шумом по углу
+    const a = rand() * Math.PI * 2;
+    const k = Math.sqrt(rand()) * (0.75 + 0.25 * Math.sin(a * 3 + c.x));
+    const q = (v: number) => Math.round(v * 10) / 10;
+    dots.push({ x: q(c.x + Math.cos(a) * c.r * k * 1.25), y: q(c.y + Math.sin(a) * c.r * k * 0.82), r: q(1 + rand() * 2.4) });
+  }
+  const edges: [number, number][] = [];
+  dots.forEach((d, i) => {
+    const near = dots
+      .map((o, j) => ({ j, dist: (o.x - d.x) ** 2 + (o.y - d.y) ** 2 }))
+      .filter((o) => o.j !== i)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 2);
+    near.forEach((o) => i < o.j && edges.push([i, o.j]));
+  });
+  return { dots, edges };
+}
+
+/** позиция узла Кортекса внутри своего облака */
+function nodePos(node: CortexNode, i: number) {
+  const c = CENTERS[node.nexus];
+  const a = i * 2.39996 + node.nexus.length;
+  const k = 0.25 + ((i * 0.37) % 0.6);
+  return { x: c.x + Math.cos(a) * c.r * k, y: c.y + Math.sin(a) * c.r * k * 0.7 };
+}
+
+function NexusField() {
+  const nodes = useFoundation((s) => s.nodes);
+  const unlocked = useFoundation((s) => s.unlocked);
+  const hovered = useFoundation((s) => s.hoveredAgent);
+  const clusters = useMemo(() => NEXUSES.map((n) => ({ nx: n, ...cluster(n.id, n.id === "tech" ? 42 : 70) })), []);
+
+  const placed = useMemo(() => {
+    const per: Record<string, number> = {};
+    return nodes.map((n) => ({ n, p: nodePos(n, (per[n.nexus] = (per[n.nexus] ?? 0) + 1)) }));
+  }, [nodes]);
+  const byId = Object.fromEntries(placed.map((x) => [x.n.id, x.p]));
+
   return (
-    <article className={`glass flex flex-col rounded-[var(--radius)] p-5 ${className}`}>
-      <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-ink-2">
-        <Icon name={icon} size={18} className="text-sun" />
-        {title}
-      </h3>
-      {children}
-    </article>
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Кортекс: облака четырёх Нексусов и заблокированная Разработка">
+      <defs>
+        <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" />
+        </filter>
+      </defs>
+      {clusters.map(({ nx, dots, edges }) => {
+        const fill = nexusFill(nodes, nx.id);
+        const locked = !unlocked.includes(nx.id);
+        const lit = Math.round(dots.length * (0.08 + fill * 0.92));
+        const dim = hovered ? !agentScope(hovered).includes(nx.id) : false;
+        const c = CENTERS[nx.id];
+        return (
+          <g key={nx.id} opacity={dim ? 0.18 : locked ? 0.35 : 1} style={{ transition: "opacity 1.2s cubic-bezier(.16,1,.3,1)" }}>
+            {edges.map(([a, b], i) => (
+              <line
+                key={i}
+                x1={dots[a].x}
+                y1={dots[a].y}
+                x2={dots[b].x}
+                y2={dots[b].y}
+                stroke={a < lit && b < lit ? nx.color : "rgba(236,232,225,.08)"}
+                strokeOpacity={a < lit && b < lit ? 0.45 : 1}
+                strokeWidth={0.6}
+                style={{ transition: "stroke 1.6s cubic-bezier(.16,1,.3,1)" }}
+              />
+            ))}
+            {dots.map((d, i) => (
+              <circle
+                key={i}
+                cx={d.x}
+                cy={d.y}
+                r={d.r}
+                fill={i < lit ? nx.color : "rgba(236,232,225,.16)"}
+                style={{ transition: `fill 1.6s cubic-bezier(.16,1,.3,1) ${i * 12}ms` }}
+              />
+            ))}
+            <text x={c.x} y={c.y - c.r * 0.82 - 14} textAnchor="middle" className="serif" fill="#ece8e1" fontSize="22" fontStyle="italic">
+              {nx.title}
+            </text>
+            <text x={c.x} y={c.y - c.r * 0.82 + 4} textAnchor="middle" fill="rgba(236,232,225,.55)" fontSize="10" letterSpacing="2.4">
+              {locked ? "🔒 " : ""}
+              {nx.latin.toUpperCase()}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* жёсткие связи между узлами (свойство продукта → боль рынка и т. п.) */}
+      {placed.flatMap(({ n, p }) =>
+        n.links
+          .filter((l) => byId[l])
+          .map((l) => {
+            const q = byId[l];
+            const mx = (p.x + q.x) / 2;
+            const my = (p.y + q.y) / 2 - 40;
+            return (
+              <motion.path
+                key={n.id + l}
+                d={`M${p.x} ${p.y} Q ${mx} ${my} ${q.x} ${q.y}`}
+                fill="none"
+                stroke="#ffd54f"
+                strokeOpacity={0.6}
+                strokeWidth={1}
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1, transition: { duration: 1.6, ease: EASE } }}
+              />
+            );
+          }),
+      )}
+      {placed.map(({ n, p }) => (
+        <motion.g key={n.id} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1, transition: { duration: 1.4, ease: EASE } }} style={{ transformOrigin: `${p.x}px ${p.y}px` }}>
+          <circle cx={p.x} cy={p.y} r={14} fill={NODE_STATUS[n.status].color} opacity={0.25} filter="url(#soft)" />
+          <circle cx={p.x} cy={p.y} r={5} fill={NODE_STATUS[n.status].color} />
+        </motion.g>
+      ))}
+    </svg>
   );
 }
 
-const DOCS = [
-  { t: "Скрипт проблемного интервью", s: "Discovery" },
-  { t: "Юнит-экономика — черновик", s: "Рост" },
-  { t: "PRD v0", s: "Delivery · заблокирован", locked: true },
-];
+function agentScope(id: string) {
+  return AGENTS.find((a) => a.id === id)?.scope ?? [];
+}
 
-const SOURCES = [
-  { t: "«Борода продакта» — С. Тихомиров", s: "Product Architecture Framework" },
-  { t: "Хабр", s: "Разработка, продукт" },
-  { t: "vc.ru", s: "Кейсы запусков" },
-];
+const KIND: Record<string, string> = {
+  idea: "Идея",
+  audience: "Аудитория",
+  alternative: "Альтернатива",
+  pain: "Боль",
+  feature: "Свойство продукта",
+  metric: "Метрика",
+  hypothesis: "Гипотеза",
+  risk: "Риск",
+  stack: "Стек",
+};
 
-const NEXT = ["Построить дерево метрик", "Приоритизировать по ICE / RICE", "Переформатировать в PRD"];
+function NexusCard({ id }: { id: NexusId }) {
+  const nx = NEXUSES.find((n) => n.id === id)!;
+  const allNodes = useFoundation((s) => s.nodes);
+  const nodes = useMemo(() => allNodes.filter((n) => n.nexus === id), [allNodes, id]);
+  const unlocked = useFoundation((s) => s.unlocked.includes(id));
+  const fill = nexusFill(allNodes, id);
+  const lit = fill >= 0.5;
+  const idx = ["market", "product", "growth", "ops"].indexOf(id) + 1;
 
-function MentorPanel() {
   return (
-    <aside aria-label="ИИ-ассистент проекта" className="glass flex flex-col rounded-[var(--radius)] p-5 lg:row-span-3">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-ink-2">
-          <span className="size-2 rounded-full bg-st-ok" aria-hidden /> Ментор
-        </h3>
-        <span className="text-xs text-ink-3">этап: Рынок</span>
+    <article
+      className="relative flex min-h-[260px] flex-col overflow-hidden rounded-[28px] border p-6 transition-[border-color,background-color,opacity] duration-[1600ms] ease-[var(--ease-atelier)] sm:p-7"
+      style={{
+        borderColor: lit ? `color-mix(in oklab, ${nx.color} 55%, transparent)` : "var(--hair)",
+        background: lit ? `radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, ${nx.color} 14%, transparent), transparent 60%), var(--graphite-2)` : "var(--graphite-2)",
+        opacity: unlocked ? 1 : 0.55,
+      }}
+    >
+      <p className="text-[11px] tracking-[0.14em] text-ivory-60">
+        nexus: {id === "ops" ? "operations" : id} <span style={{ color: lit ? nx.color : undefined }}>•</span> 0{idx}
+      </p>
+      <h3 className="serif mt-3 text-[34px] leading-none">{nx.title}</h3>
+      <div className="mt-4 h-px w-full bg-hair">
+        <div className="h-px origin-left transition-transform duration-[1600ms] ease-[var(--ease-atelier)]" style={{ background: nx.color, transform: `scaleX(${fill})` }} />
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 text-[15px] leading-relaxed">
-        <p className="rounded-2xl rounded-bl-md bg-white/[0.06] p-4">
-          CAC 1 200 ₽ — это допущение: вы не назвали канал. Без канала юнит-экономика не считается.
+      {!unlocked ? (
+        <p className="mt-auto pt-8 text-[13px] leading-relaxed text-ivory-60">
+          Заблокирован. Откроется, когда агент Рынка подтвердит полноту и объективность данных.
         </p>
-
-        <div className="rounded-2xl border border-st-check/30 bg-st-check/[0.06] p-4">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-st-check">Что нужно узнать</p>
-          <ul className="space-y-1.5 text-sm text-ink-2">
-            <li>— Где ваши клиенты ищут решение сейчас</li>
-            <li>— Сколько стоит один контакт в этом канале</li>
-            <li>— Какая доля доходит до оплаты</li>
-          </ul>
-        </div>
-
-        <div className="rounded-2xl border border-st-fail/30 bg-st-fail/[0.06] p-4 text-sm text-ink-2">
-          <span className="font-medium text-st-fail">Не доказано: </span>
-          «всем барбершопам нужна запись онлайн». Двое из пяти опрошенных уже пользуются YCLIENTS.
-        </div>
-
-        <div className="mt-auto">
-          <p className="mb-2 text-xs text-ink-3">Что дальше</p>
-          <ul className="flex flex-wrap gap-2">
-            {NEXT.map((n) => (
-              <li key={n}>
-                <button type="button" className="rounded-full border border-line-strong px-3 py-1.5 text-xs text-ink transition-colors hover:border-sun hover:text-sun">
-                  {n}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="mt-5 flex items-center gap-2 rounded-full border border-line p-1.5 pl-4">
-        <label htmlFor="cortex-input" className="sr-only">
-          Вопрос ассистенту
-        </label>
-        <input id="cortex-input" placeholder="Спросите о проекте…" className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-ink-3 focus:outline-none" />
-        <button type="button" className="btn-sun !min-h-9 !w-9 !p-0" aria-label="Отправить">
-          <Icon name="send" size={16} />
-        </button>
-      </div>
-    </aside>
+      ) : nodes.length === 0 ? (
+        <p className="mt-auto pt-8 text-[13px] leading-relaxed text-ivory-40">Нет объективных данных. Ответьте Ментору — карточка загорится.</p>
+      ) : (
+        <ul className="mt-5 space-y-2.5">
+          {nodes.map((n) => (
+            <motion.li
+              key={n.id}
+              initial={{ opacity: 0, filter: "blur(12px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)", transition: { duration: 1.4, ease: EASE } }}
+              className="flex items-baseline justify-between gap-4 text-[13px]"
+            >
+              <span className="min-w-0">
+                <span className="text-ivory-60">{KIND[n.kind]} · </span>
+                <span className="text-ivory">{n.label}</span>
+              </span>
+              <span className="shrink-0 text-[11px]" style={{ color: NODE_STATUS[n.status].color }}>
+                {NODE_STATUS[n.status].label.toLowerCase()}
+              </span>
+            </motion.li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }
 
 export function Cortex() {
   return (
-    <section id="cortex" aria-labelledby="cortex-title" className="relative py-20 lg:py-28">
+    <section id="cortex" aria-labelledby="cortex-title" className="relative py-24 lg:py-36">
       <div className="container-x">
-        <header className="mb-10 max-w-[60ch]">
-          <p className="eyebrow mb-3">Кортекс · единый граф решений</p>
-          <h2 id="cortex-title" className="font-display text-[clamp(26px,3.6vw,44px)] font-semibold leading-tight tracking-tight">
-            Всё, что вы узнали о проекте, — в одной базе
+        <header className="mx-auto mb-14 max-w-[720px] text-center">
+          <p className="caps mb-5">Кортекс · единый граф решений</p>
+          <h2 id="cortex-title" className="serif text-[clamp(40px,6vw,84px)] leading-[0.98] tracking-[0.01em]">
+            Каждый ответ достраивает <em>карту проекта</em>
           </h2>
-          <p className="mt-4 text-ink-2">
-            Гипотезы, интервью, документы и цифры связываются в граф. Из него работают агенты, и каждый видит только свою часть.
+          <p className="mx-auto mt-6 max-w-[52ch] text-[15px] leading-relaxed text-ivory-60">
+            Ни один элемент не живёт отдельно: свойство продукта всегда связано с болью рынка. Облака загораются, только когда наполнены
+            проверяемыми данными.
           </p>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_minmax(320px,0.9fr)] lg:grid-rows-[auto_auto_auto]">
-          {/* граф */}
-          <Block title="Граф текущих задач" icon="graph" className="lg:col-span-2">
-            <div className="relative -mx-2 overflow-hidden rounded-2xl bg-void/60">
-              <GraphPreview className="h-[260px] w-full sm:h-[360px] lg:h-[420px]" />
-              <button type="button" className="btn-ghost absolute bottom-3 right-3 !min-h-9 bg-space/80 !px-4 text-xs lg:hidden">
-                Развернуть граф
-              </button>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-ink-2">
-              {NEXUSES.map((n) => (
-                <span key={n.id} className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full" style={{ background: n.color }} aria-hidden />
-                  {n.title}
-                  <span className="text-ink-3">· {n.latin}</span>
-                </span>
-              ))}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-ink-3">
-              {Object.values(NODE_STATUS).map((s) => (
-                <span key={s.label} className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-sm" style={{ background: s.color }} aria-hidden />
-                  {s.label}
-                </span>
-              ))}
-            </div>
-          </Block>
+        <NexusField />
 
-          <MentorPanel />
+        <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {(["market", "product", "growth", "ops"] as NexusId[]).map((id) => (
+            <NexusCard key={id} id={id} />
+          ))}
+        </div>
 
-          <Block title="Документы" icon="doc">
-            <ul className="space-y-2">
-              {DOCS.map((d) => (
-                <li key={d.t} className={`flex items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-3 py-2.5 ${d.locked ? "opacity-50" : ""}`}>
-                  <span className="text-sm">{d.t}</span>
-                  <span className="shrink-0 text-xs text-ink-3">{d.s}</span>
-                </li>
-              ))}
-            </ul>
-          </Block>
-
-          <Block title="Источники инсайтов" icon="source">
-            <p className="mb-3 text-xs text-ink-3">ИИ опирается на них в первую очередь</p>
-            <ul className="space-y-2">
-              {SOURCES.map((s) => (
-                <li key={s.t} className="rounded-xl bg-white/[0.03] px-3 py-2.5">
-                  <span className="block text-sm">{s.t}</span>
-                  <span className="text-xs text-ink-3">{s.s}</span>
-                </li>
-              ))}
-              <li>
-                <button type="button" className="w-full rounded-xl border border-dashed border-line-strong px-3 py-2.5 text-left text-sm text-ink-3 hover:text-ink">
-                  + Добавить автора или сайт
-                </button>
-              </li>
-            </ul>
-          </Block>
-
-          <Block title="Таблицы" icon="table">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">Пример: юнит-экономика</caption>
-              <thead className="text-xs text-ink-3">
-                <tr>
-                  <th className="pb-2 font-normal">Метрика</th>
-                  <th className="pb-2 text-right font-normal">Значение</th>
-                  <th className="pb-2 text-right font-normal">Статус</th>
-                </tr>
-              </thead>
-              <tbody className="[&_td]:border-t [&_td]:border-line [&_td]:py-2">
-                <tr>
-                  <td>CAC</td>
-                  <td className="text-right tabular-nums">1 200 ₽</td>
-                  <td className="text-right text-st-assume">допущение</td>
-                </tr>
-                <tr>
-                  <td>ARPU / мес</td>
-                  <td className="text-right tabular-nums">890 ₽</td>
-                  <td className="text-right text-st-check">проверяется</td>
-                </tr>
-                <tr>
-                  <td>Retention M3</td>
-                  <td className="text-right tabular-nums">—</td>
-                  <td className="text-right text-ink-3">нет данных</td>
-                </tr>
-              </tbody>
-            </table>
-          </Block>
-
-          <Block title="Фото и сканы" icon="photo">
-            <div className="flex gap-3">
-              <div
-                className="aspect-[4/3] w-28 shrink-0 rounded-xl"
-                style={{ background: "repeating-linear-gradient(135deg,#1c2560 0 12px,#141b45 12px 24px)" }}
-                role="img"
-                aria-label="Фото доски со стикерами"
-              />
-              <div className="text-sm">
-                <p>Доска после воркшопа</p>
-                <p className="mt-1 text-xs leading-relaxed text-ink-3">Распознано 6 стикеров → 4 гипотезы добавлены в «Продукт · Discovery»</p>
-              </div>
-            </div>
-          </Block>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          {[
+            ["Документы", "PRD, скрипты интервью, отчёты — собираются из графа, а не пишутся с нуля."],
+            ["Источники", "Любимые авторы и площадки — ИИ опирается на них в первую очередь."],
+            ["Таблицы и фото", "Загрузите CSV или фото доски: распознаем и разложим по Нексусам."],
+          ].map(([t, d]) => (
+            <article key={t} className="rounded-[28px] border border-hair bg-graphite-2 p-6 sm:p-7">
+              <h3 className="serif text-[26px] leading-none">{t}</h3>
+              <p className="mt-3 text-[13px] leading-relaxed text-ivory-60">{d}</p>
+            </article>
+          ))}
         </div>
       </div>
     </section>

@@ -1,26 +1,228 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------
+   Design tokens — Foundation
+   Тёмная тема по умолчанию: глубокий космос + тёплый жёлтый маскота
+   + неоновые акценты графа. Все пары текст/фон проверены на AA.
+------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* поверхности */
+  --void: #04050c;          /* самый глубокий фон */
+  --space: #070a1c;         /* основной фон страницы */
+  --space-2: #0c1230;       /* приподнятые панели */
+  --space-3: #141b45;       /* hover / активные панели */
+  --line: rgba(160, 175, 255, 0.14);
+  --line-strong: rgba(160, 175, 255, 0.28);
+
+  /* текст */
+  --ink: #eef0ff;           /* 17.6:1 на --space */
+  --ink-2: #b4b9d6;         /* 9.4:1 */
+  --ink-3: #8b91b3;         /* 5.6:1 — минимум для мелкого текста */
+
+  /* бренд */
+  --sun: #ffc93c;           /* жёлтый маскота, акцент CTA */
+  --sun-2: #ffb21a;
+  --sun-ink: #1a1100;       /* текст на жёлтом */
+
+  /* неон графа — ветви Нексусов */
+  --nx-market: #4df3ff;
+  --nx-product: #9b8cff;
+  --nx-growth: #ff5fd2;
+  --nx-ops: #7dff9b;
+  --nx-tech: #ff9d4d;
+
+  /* статусы узлов */
+  --st-assume: #8a90a6;
+  --st-check: #ffc93c;
+  --st-ok: #4be38a;
+  --st-fail: #ff5a6a;
+
+  --radius: 20px;
+  --radius-lg: 32px;
+  --gutter: clamp(16px, 4vw, 48px);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-void: var(--void);
+  --color-space: var(--space);
+  --color-space-2: var(--space-2);
+  --color-space-3: var(--space-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-sun: var(--sun);
+  --color-sun-2: var(--sun-2);
+  --color-sun-ink: var(--sun-ink);
+  --color-nx-market: var(--nx-market);
+  --color-nx-product: var(--nx-product);
+  --color-nx-growth: var(--nx-growth);
+  --color-nx-ops: var(--nx-ops);
+  --color-nx-tech: var(--nx-tech);
+  --color-st-assume: var(--st-assume);
+  --color-st-check: var(--st-check);
+  --color-st-ok: var(--st-ok);
+  --color-st-fail: var(--st-fail);
+
+  --font-display: var(--font-unbounded), "Arial Black", sans-serif;
+  --font-sans: var(--font-onest), system-ui, sans-serif;
+
+  --radius-card: var(--radius);
+  --radius-card-lg: var(--radius-lg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--void);
+  color-scheme: dark;
+  scroll-padding-top: 72px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--space);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--sun);
+  color: var(--sun-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--sun);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+@layer components {
+/* ---------- утилиты ---------- */
+.container-x {
+  width: 100%;
+  max-width: 1360px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.glass {
+  background: linear-gradient(180deg, rgba(20, 27, 69, 0.72), rgba(12, 18, 48, 0.62));
+  border: 1px solid var(--line);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* лёгкий плёночный шум — используется и как фолбэк заставки */
+.noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* статичный космос: фолбэк WebGL-заставки (reduced-motion / слабый GPU) */
+.space-fallback {
+  background:
+    radial-gradient(60% 50% at 50% 55%, rgba(255, 201, 60, 0.14), transparent 60%),
+    radial-gradient(40% 40% at 20% 20%, rgba(77, 243, 255, 0.12), transparent 70%),
+    radial-gradient(45% 45% at 85% 30%, rgba(155, 140, 255, 0.16), transparent 70%),
+    radial-gradient(70% 60% at 50% 100%, rgba(255, 95, 210, 0.08), transparent 70%),
+    var(--void);
+}
+
+/* звёзды на CSS для фолбэка */
+.starfield {
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, #fff8, transparent),
+    radial-gradient(1px 1px at 72% 12%, #fff6, transparent),
+    radial-gradient(1.5px 1.5px at 38% 66%, #fff7, transparent),
+    radial-gradient(1px 1px at 88% 74%, #fff5, transparent),
+    radial-gradient(1px 1px at 54% 34%, #fff6, transparent),
+    radial-gradient(1.5px 1.5px at 22% 82%, #fff4, transparent),
+    radial-gradient(1px 1px at 64% 88%, #fff5, transparent),
+    radial-gradient(1px 1px at 92% 42%, #fff6, transparent);
+  background-size: 420px 420px;
+}
+
+/* кнопки */
+.btn-sun {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: 999px;
+  background: var(--sun);
+  color: var(--sun-ink);
+  font-weight: 600;
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), background 0.2s;
+  box-shadow: 0 0 0 0 rgba(255, 201, 60, 0);
+}
+.btn-sun:hover {
+  background: #ffd567;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 40px -8px rgba(255, 201, 60, 0.55);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  transition: background 0.2s, border-color 0.2s;
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* свечение кромки окна-портала (в фазе 3 синхронизируется с дыханием) */
+.portal-rim {
+  box-shadow:
+    0 0 0 1px rgba(255, 201, 60, 0.55),
+    0 0 40px 2px rgba(255, 201, 60, 0.25),
+    inset 0 0 60px rgba(255, 201, 60, 0.12);
+}
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+.sr-only-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 }

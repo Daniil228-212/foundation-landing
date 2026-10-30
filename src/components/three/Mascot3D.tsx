@@ -159,6 +159,7 @@ export function Mascot3D() {
     hL: new THREE.Vector3(-0.85, -1.55, 0.35),
     hR: new THREE.Vector3(0.85, -1.55, 0.35),
     prevState: "idle" as MascotState,
+    settled: false,
   });
 
   const tmp = useMemo(
@@ -195,6 +196,8 @@ export function Mascot3D() {
       const float = Math.sin(t * 0.9) * 0.05 * hR;
       tmp.a.set(c.x, c.y + R + 0.6 * hR + float, -1.35 * hR);
       easing.damp3(L.peek, tmp.a, 0.55, dt);
+      // руки ложатся на кромку только когда маскот занял место (иначе тянутся вверх «антеннами»)
+      L.settled = L.peek.distanceTo(tmp.a) < 0.3 * hR;
       L.peekScale = THREE.MathUtils.damp(L.peekScale, hR, 4, dt);
       g.position.copy(L.peek);
       g.scale.setScalar(L.peekScale);
@@ -263,7 +266,7 @@ export function Mascot3D() {
     if (earR.current) earR.current.rotation.set(0.15, 0, -droop - Math.sin(t * 1.3 + 1) * 0.03);
 
     // ---------- руки (IK: плечо → цель кисти) ----------
-    const hand = I.mode === "intro" ? (I.wave > 0.01 ? "wave" : "rest") : pose.hand;
+    const hand = I.mode === "intro" ? (I.wave > 0.01 ? "wave" : "rest") : L.settled ? pose.hand : "rest";
     const targetFor = (side: -1 | 1, out: THREE.Vector3) => {
       const rimTarget = () => {
         const c = stage.ring.center;

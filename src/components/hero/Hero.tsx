@@ -71,7 +71,7 @@ function Ring({ shown }: { shown: boolean }) {
           </defs>
         </svg>
 
-        <div className="absolute inset-[13%] flex flex-col items-center justify-center text-center">
+        <div className="reveal absolute inset-[13%] flex flex-col items-center justify-center text-center" data-shown={ready}>
           <div className="flex min-h-[52%] w-full flex-col items-center justify-end gap-3" aria-live="polite">
             <AnimatePresence mode="wait">
               {lastUser && (

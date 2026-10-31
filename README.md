@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Foundation — лендинг ИИ-ментора для фаундеров
 
-## Getting Started
+Интерактивный лендинг: заставка с радиантом (WebGL), диалог с Ментором в кольце ввода,
+граф проекта в стиле Obsidian, файлы проекта, команда и эксперты.
 
-First, run the development server:
+## Запуск на своём компьютере
+
+Нужен [Node.js](https://nodejs.org) версии 20 или новее.
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Продакшен-сборка локально:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+Заставка показывается только при первом визите. Чтобы увидеть её снова, выполните в консоли браузера
+`localStorage.removeItem("fdn-intro-seen")` и обновите страницу.
 
-To learn more about Next.js, take a look at the following resources:
+## Публикация на GitHub Pages
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+В репозитории есть workflow `.github/workflows/pages.yml`: при каждом push в `main` сайт собирается
+и публикуется. Один раз включите Pages: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+Адрес сайта: `https://<аккаунт>.github.io/<репозиторий>/`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Где что лежит
 
-## Deploy on Vercel
+| Путь | Что внутри |
+| --- | --- |
+| `src/components/hero` | Главный экран: вход, шапка с хронографом, кольцо ввода, панели |
+| `src/components/three` | WebGL-сцена: радиант, глянцевый пол, луч, частицы |
+| `src/components/panels` | Окна «Граф», «Общие данные», «Команда» |
+| `src/components/sections` | Эксперты, метод, ранний доступ, подвал |
+| `src/lib/mentorScript.ts` | Сценарий Ментора: знакомство, вопросы, гейты, извлечение фактов |
+| `src/store/foundation.ts` | Глобальное состояние (Zustand) |
+| `src/content` | Тексты, Нексусы, агенты, эксперты, структура файлов проекта |
+| `.claude/skills` | Скиллы дизайна и анимации, которыми пользуется Claude в этом проекте |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Эксперты в `src/content/experts.ts` — примеры профилей. Имена, фото и компании реальных людей
+добавляйте только с их согласия.

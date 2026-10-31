@@ -1,7 +1,6 @@
 "use client";
 
 import { create } from "zustand";
-import type { AgentId } from "@/content/agents";
 import type { NexusId } from "@/content/nexus";
 import {
   classifyIdea,
@@ -9,75 +8,93 @@ import {
   respond,
   type CortexNode,
   type IdeaType,
+  type Profile,
   type Step,
 } from "@/lib/mentorScript";
 import { sound } from "@/lib/sound";
 
 export type Phase = "gate" | "intro" | "greeting" | "ready";
-export type MascotState =
-  | "greeting"
-  | "idle"
-  | "listening"
-  | "thinking"
-  | "challenging"
-  | "approving"
-  | "blocking";
-
+/** Состояние Ментора — им «дышит» радиант над кольцом */
+export type MentorState = "idle" | "listening" | "thinking" | "challenging" | "approving" | "blocking";
+export type Panel = "graph" | "data" | "team" | null;
 export type Message = { id: number; from: "mentor" | "user"; text: string };
+
+export const IDEA_EXAMPLES = ["Соцсеть для ", "SaaS для бизнеса: ", "Маркетплейс ", "Мобильное приложение для "];
+export const SEEN_KEY = "fdn-intro-seen";
 
 type State = {
   phase: Phase;
   soundOn: boolean;
-  mascot: MascotState;
+  mentor: MentorState;
   focused: boolean;
-  hoveredAgent: AgentId | null;
+  panel: Panel;
   messages: Message[];
+  quick: string[];
   nodes: CortexNode[];
+  profile: Profile;
   step: Step;
   retried: boolean;
   ideaType: IdeaType;
   unlocked: NexusId[];
   busy: boolean;
+  uploads: { name: string; path: string }[];
 
+  addUpload: (name: string, path: string) => void;
   enter: (withSound: boolean) => void;
   revealUI: () => void;
-  finishGreeting: () => void;
+  finishIntro: () => void;
   skipIntro: () => void;
   toggleSound: () => void;
   setFocused: (f: boolean) => void;
-  setHoveredAgent: (a: AgentId | null) => void;
-  setMascot: (m: MascotState) => void;
+  setPanel: (p: Panel) => void;
   send: (text: string) => void;
 };
 
 let msgId = 0;
 let moodTimer: ReturnType<typeof setTimeout> | undefined;
 
+function markSeen() {
+  try {
+    localStorage.setItem(SEEN_KEY, "1");
+  } catch {
+    /* приватный режим — просто покажем заставку снова */
+  }
+}
+
 export const useFoundation = create<State>((set, get) => ({
   phase: "gate",
   soundOn: false,
-  mascot: "idle",
+  mentor: "idle",
   focused: false,
-  hoveredAgent: null,
+  panel: null,
   messages: [{ id: ++msgId, from: "mentor", text: OPENING }],
+  quick: [],
   nodes: [],
-  step: "idea",
+  profile: {},
+  step: "name",
   retried: false,
   ideaType: "generic",
   unlocked: ["market", "growth", "ops"],
   busy: false,
+  uploads: [],
 
+  // загрузка или «переезд» файла в папку (одно имя — одна запись)
+  addUpload: (name, path) => set((s) => ({ uploads: [...s.uploads.filter((u) => u.name !== name), { name, path }] })),
   enter: (withSound) => {
     if (withSound) sound.start();
+    markSeen();
     const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    set({ phase: reduce ? "ready" : "intro", soundOn: withSound, mascot: reduce ? "idle" : "greeting" });
+    set({ phase: reduce ? "ready" : "intro", soundOn: withSound });
   },
   revealUI: () => {
-    if (get().phase === "intro") set({ phase: "greeting", mascot: "greeting" });
+    if (get().phase === "intro") set({ phase: "greeting" });
     if (get().soundOn) sound.chime("up");
   },
-  finishGreeting: () => set({ phase: "ready", mascot: get().focused ? "listening" : "idle" }),
-  skipIntro: () => set({ phase: "ready", mascot: "idle" }),
+  finishIntro: () => set({ phase: "ready" }),
+  skipIntro: () => {
+    markSeen();
+    set({ phase: "ready" });
+  },
   toggleSound: () => {
     const on = !get().soundOn;
     if (on) sound.start();
@@ -87,11 +104,9 @@ export const useFoundation = create<State>((set, get) => ({
   setFocused: (f) => {
     const s = get();
     set({ focused: f });
-    if (s.busy || s.phase !== "ready") return;
-    if (s.mascot === "idle" || s.mascot === "listening") set({ mascot: f ? "listening" : "idle" });
+    if (!s.busy && (s.mentor === "idle" || s.mentor === "listening")) set({ mentor: f ? "listening" : "idle" });
   },
-  setHoveredAgent: (a) => set({ hoveredAgent: a }),
-  setMascot: (m) => set({ mascot: m }),
+  setPanel: (panel) => set({ panel }),
 
   send: (raw) => {
     const text = raw.trim();
@@ -101,31 +116,34 @@ export const useFoundation = create<State>((set, get) => ({
     const ideaType = s.step === "idea" ? classifyIdea(text) : s.ideaType;
     set({
       messages: [...s.messages, { id: ++msgId, from: "user", text }],
-      mascot: "thinking",
+      mentor: "thinking",
       busy: true,
+      quick: [],
       ideaType,
     });
 
-    // «думает» — короткая пауза, чтобы ответ ощущался взвешенным
+    // короткая пауза — ответ ощущается взвешенным
     setTimeout(() => {
       const cur = get();
-      const r = respond(cur.step, text, { type: ideaType, nodes: cur.nodes, retried: cur.retried });
+      const r = respond(cur.step, text, { type: ideaType, nodes: cur.nodes, retried: cur.retried, profile: cur.profile });
       const sameStep = r.next === cur.step;
       set({
         messages: [...cur.messages, { id: ++msgId, from: "mentor", text: r.text }],
         nodes: [...cur.nodes, ...r.nodes],
+        profile: r.profile ?? cur.profile,
+        quick: r.quick ?? (r.next === "idea" ? IDEA_EXAMPLES : []),
         step: r.next,
-        retried: sameStep ? true : false,
+        retried: sameStep,
         unlocked: r.unlock && !cur.unlocked.includes(r.unlock) ? [...cur.unlocked, r.unlock] : cur.unlocked,
-        mascot: r.mood,
+        mentor: r.mood,
         busy: false,
       });
       if (cur.soundOn) sound.chime(r.mood === "approving" ? "up" : r.mood === "blocking" ? "down" : "soft");
       clearTimeout(moodTimer);
       moodTimer = setTimeout(() => {
         const g = get();
-        if (!g.busy) set({ mascot: g.focused ? "listening" : "idle" });
+        if (!g.busy) set({ mentor: g.focused ? "listening" : "idle" });
       }, 2600);
-    }, 1300);
+    }, 1200);
   },
 }));

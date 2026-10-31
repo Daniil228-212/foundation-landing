@@ -2,18 +2,22 @@
 
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
-import { AGENTS, WORKSPACE_ACTIONS } from "@/content/agents";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AGENTS } from "@/content/agents";
 import { NEXUSES } from "@/content/nexus";
-import { Mascot } from "@/components/mascot/Mascot";
-import { useFoundation } from "@/store/foundation";
+import { countTree } from "@/content/projectFiles";
+import { nexusFill } from "@/lib/mentorScript";
+import { SEEN_KEY, useFoundation, type Panel } from "@/store/foundation";
+import { DataWindow, FileGlyph, FolderGlyph, useProjectTree } from "@/components/panels/DataWindow";
+import { GraphWindow } from "@/components/panels/GraphWindow";
+import { Avatar, founderTasks, TeamWindow } from "@/components/panels/TeamWindow";
 import { Gate } from "./Gate";
+import { RadiantMark } from "./RadiantMark";
 import { TopBar } from "./TopBar";
 
 const Scene = dynamic(() => import("@/components/three/Scene"), { ssr: false });
 
 const EASE = [0.16, 1, 0.3, 1] as const;
-const QUICK = ["соцсеть для…", "SaaS для бизнеса", "маркетплейс", "мобильное приложение"];
 
 /** «Проявление»: blur 20 → 0, медленная кривая Atelier */
 const develop = {
@@ -37,16 +41,20 @@ function useWebGL() {
 
 /* ---------------- кольцо ввода ---------------- */
 function Ring({ shown }: { shown: boolean }) {
+  const phase = useFoundation((s) => s.phase);
   const messages = useFoundation((s) => s.messages);
+  const quick = useFoundation((s) => s.quick);
   const busy = useFoundation((s) => s.busy);
-  const ready = useFoundation((s) => s.phase === "ready");
   const send = useFoundation((s) => s.send);
   const setFocused = useFoundation((s) => s.setFocused);
+  const step = useFoundation((s) => s.step);
   const [value, setValue] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const ready = phase === "ready";
 
   const mentor = [...messages].reverse().find((m) => m.from === "mentor");
-  const lastUser = messages.at(-1)?.from === "user" ? messages.at(-1) : [...messages].reverse().find((m) => m.from === "user");
+  const lastUser = [...messages].reverse().find((m) => m.from === "user");
+  const placeholder = step === "name" ? "Ваше имя…" : step === "idea" ? "Ваша идея…" : "Ваш ответ…";
 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -55,9 +63,17 @@ function Ring({ shown }: { shown: boolean }) {
     setValue("");
   };
 
+  // быстрые ответы: полные — отправляем сразу, заготовки идей — дописываем
+  const pick = (q: string) => {
+    if (q.endsWith(" ") || q.endsWith(": ")) {
+      setValue(q);
+      input.current?.focus();
+    } else send(q);
+  };
+
   return (
     <div className="flex flex-col items-center">
-      <div data-ring className="reveal relative aspect-square w-[min(80vw,340px)] rounded-full lg:w-[min(52svh,480px)]" data-shown={shown}>
+      <div data-ring className="reveal relative aspect-square w-[min(84vw,360px)] rounded-full lg:w-[min(52svh,480px)]" data-shown={shown}>
         <svg className="pointer-events-none absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 100 100" aria-hidden>
           <circle className="ring-line" cx="50" cy="50" r="49.6" fill="none" stroke="rgba(236,232,225,.38)" strokeWidth="0.25" pathLength={1} />
           <g className="ring-glint">
@@ -70,6 +86,21 @@ function Ring({ shown }: { shown: boolean }) {
             </linearGradient>
           </defs>
         </svg>
+
+        <AnimatePresence>
+          {phase === "greeting" && (
+            <motion.div
+              key="hello"
+              className="absolute inset-0 flex flex-col items-center justify-center text-center"
+              initial={{ opacity: 0, filter: "blur(20px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)", transition: { duration: 1.4, delay: 0.5, ease: EASE } }}
+              exit={{ opacity: 0, filter: "blur(16px)", transition: { duration: 0.6, ease: EASE } }}
+            >
+              <p className="serif text-[clamp(44px,6vw,80px)] leading-none">Привет</p>
+              <p className="mt-3 max-w-[22ch] text-[14px] text-ivory-60">Я Ментор. Я не соглашаюсь — я проверяю.</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="reveal absolute inset-[13%] flex flex-col items-center justify-center text-center" data-shown={ready}>
           <div className="flex min-h-[52%] w-full flex-col items-center justify-end gap-3" aria-live="polite">
@@ -88,11 +119,7 @@ function Ring({ shown }: { shown: boolean }) {
                 </motion.p>
               ) : (
                 mentor && (
-                  <motion.p
-                    key={"m" + mentor.id}
-                    {...develop}
-                    className="serif text-[clamp(18px,2.1vw,25px)] italic leading-[1.22] text-ivory"
-                  >
+                  <motion.p key={"m" + mentor.id} {...develop} className="serif text-[clamp(18px,2.1vw,25px)] italic leading-[1.22] text-ivory">
                     <span className="sr-only">Ментор: </span>
                     {mentor.text}
                   </motion.p>
@@ -114,8 +141,8 @@ function Ring({ shown }: { shown: boolean }) {
               onBlur={() => setFocused(false)}
               disabled={!ready}
               enterKeyHint="send"
-              autoComplete="off"
-              placeholder="Ваша идея…"
+              autoComplete={step === "name" ? "given-name" : "off"}
+              placeholder={placeholder}
               className="min-w-0 flex-1 bg-transparent py-1 text-center text-[16px] font-light text-ivory placeholder:text-ivory-40 focus:outline-none focus-visible:outline-none"
             />
             <button
@@ -132,74 +159,58 @@ function Ring({ shown }: { shown: boolean }) {
         </div>
       </div>
 
-      <ul className="reveal mt-6 flex max-w-[92vw] flex-wrap justify-center gap-x-5 gap-y-2" data-shown={shown} aria-label="Примеры идей">
-        {QUICK.map((q) => (
-          <li key={q}>
-            <button
-              type="button"
-              disabled={!ready}
-              onClick={() => {
-                setValue(q === "соцсеть для…" ? "Соцсеть для " : q[0].toUpperCase() + q.slice(1) + " для ");
-                input.current?.focus();
-              }}
-              className="link-quiet text-[13px] text-ivory-60 disabled:opacity-40"
-            >
-              {q}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="mt-6 min-h-[52px]">
+        <AnimatePresence mode="wait">
+          {ready && quick.length > 0 && (
+            <motion.ul key={quick.join()} {...develop} className="flex max-w-[92vw] flex-wrap justify-center gap-x-5 gap-y-2" aria-label="Быстрые ответы">
+              {quick.map((q) => (
+                <li key={q}>
+                  <button type="button" onClick={() => pick(q)} className="link-quiet text-[13px] text-ivory-60">
+                    {q.trim().replace(/:$/, "")}
+                  </button>
+                </li>
+              ))}
+            </motion.ul>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
 
-/* ---------------- агенты (слева / лента на мобильном) ---------------- */
-function AgentsRail({ shown }: { shown: boolean }) {
-  const hovered = useFoundation((s) => s.hoveredAgent);
-  const setHovered = useFoundation((s) => s.setHoveredAgent);
+/* ---------------- инструменты (слева) ---------------- */
+function ToolsRail({ shown }: { shown: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
-
   return (
-    <aside
-      aria-label="ИИ-агенты"
-      className="reveal pointer-events-auto lg:absolute lg:left-[var(--gutter)] lg:top-1/2 lg:-translate-y-1/2"
-      data-shown={shown}
-    >
-      <p className="caps mb-5 hidden lg:block">Агенты</p>
-      <ul className="no-scrollbar -mx-[var(--gutter)] flex snap-x gap-3 overflow-x-auto px-[var(--gutter)] lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0">
+    <aside aria-label="Инструменты" className="reveal w-full lg:absolute lg:left-[var(--gutter)] lg:top-1/2 lg:w-[250px] lg:-translate-y-1/2" data-shown={shown}>
+      <p className="caps mb-5 px-[var(--gutter)] lg:px-0">Инструменты</p>
+      <ul className="no-scrollbar flex snap-x gap-2 overflow-x-auto px-[var(--gutter)] lg:flex-col lg:gap-5 lg:overflow-visible lg:px-0">
         {AGENTS.map((a) => {
           const isOpen = open === a.id;
           return (
-            <li key={a.id} className="relative snap-start">
+            <li key={a.id} className="relative shrink-0 snap-start">
               <button
                 type="button"
                 aria-expanded={isOpen}
-                onMouseEnter={() => setHovered(a.id)}
-                onMouseLeave={() => setHovered(null)}
-                onFocus={() => setHovered(a.id)}
-                onBlur={() => setHovered(null)}
                 onClick={() => setOpen(isOpen ? null : a.id)}
-                className={`group flex w-[104px] flex-col items-center gap-2 rounded-2xl py-2 text-center transition-[opacity,transform] duration-150 active:scale-[0.97] lg:w-auto lg:flex-row lg:gap-4 lg:pr-4 lg:text-left ${
-                  hovered && hovered !== a.id ? "opacity-45" : ""
-                }`}
+                className={`group rounded-2xl border border-hair px-4 py-3 text-left transition-[border-color,transform] duration-150 active:scale-[0.98] lg:w-full lg:border-0 lg:p-0 ${a.gated ? "opacity-45" : ""}`}
               >
-                <span data-agent-slot={a.id} className="block size-14 shrink-0 lg:size-16" aria-hidden />
-                <span>
-                  <span className="serif flex items-center justify-center gap-1.5 text-[17px] leading-none lg:justify-start lg:text-[21px]">
-                    {a.name}
-                    {a.gated && <LockGlyph />}
-                  </span>
-                  <span className="mt-1.5 hidden text-[12px] text-ivory-60 lg:block">{a.tools.map((t) => t.title).join(" · ")}</span>
+                <span className="flex items-center gap-2 text-[11px] tracking-[0.18em] text-ivory-60 uppercase">
+                  <span className="size-1.5 rounded-full" style={{ background: a.color }} aria-hidden />
+                  агент · {a.name}
+                  {a.gated && <span className="normal-case tracking-normal text-ivory-40">· после гейта</span>}
+                </span>
+                <span className="serif mt-1.5 block whitespace-nowrap text-[19px] leading-tight transition-colors group-hover:text-sun lg:whitespace-normal lg:text-[21px]">
+                  {a.tools.map((t) => t.title).join(" · ")}
                 </span>
               </button>
-
               <AnimatePresence>
                 {isOpen && (
                   <motion.div
                     initial={{ opacity: 0, filter: "blur(10px)", transform: "translateX(-6px)" }}
                     animate={{ opacity: 1, filter: "blur(0px)", transform: "translateX(0px)", transition: { duration: 0.5, ease: EASE } }}
                     exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}
-                    className="absolute left-full top-0 z-20 ml-3 hidden w-[300px] rounded-2xl border border-hair bg-graphite-2/95 p-5 backdrop-blur-xl lg:block"
+                    className="absolute left-full top-0 z-20 ml-6 hidden w-[310px] rounded-2xl border border-hair bg-graphite-2/95 p-5 backdrop-blur-xl lg:block"
                   >
                     <p className="caps mb-2" style={{ color: a.color }}>
                       {a.role}
@@ -216,7 +227,6 @@ function AgentsRail({ shown }: { shown: boolean }) {
                     <p className="mt-4 text-[12px] text-ivory-60">
                       Видит только: {a.scope.map((s) => NEXUSES.find((n) => n.id === s)!.title).join(", ")}
                     </p>
-                    {a.gated && <p className="mt-2 text-[12px] text-ivory-60">Проснётся после подтверждения Рынка и Продукта.</p>}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -224,69 +234,132 @@ function AgentsRail({ shown }: { shown: boolean }) {
           );
         })}
       </ul>
-      <p className="mt-5 hidden max-w-[230px] text-[12px] leading-relaxed text-ivory-40 lg:block">
+      <p className="mt-6 hidden max-w-[240px] text-[12px] leading-relaxed text-ivory-40 lg:block">
         Свой ключ Claude или GPT — или инструменты по подписке.
       </p>
     </aside>
   );
 }
 
-function LockGlyph() {
+/* ---------------- мини-превью справа ---------------- */
+function GraphMini() {
+  const nodes = useFoundation((s) => s.nodes);
+  const unlocked = useFoundation((s) => s.unlocked);
+  const pos: Record<string, [number, number]> = { market: [34, 38], product: [92, 22], growth: [150, 46], ops: [70, 76], tech: [178, 16] };
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-ivory-40" aria-label="заблокирован">
-      <path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z" />
+    <svg viewBox="0 0 210 96" className="h-[84px] w-full" aria-hidden>
+      {[
+        ["market", "product"],
+        ["product", "growth"],
+        ["growth", "ops"],
+        ["ops", "market"],
+        ["product", "tech"],
+      ].map(([a, b]) => (
+        <line key={a + b} x1={pos[a][0]} y1={pos[a][1]} x2={pos[b][0]} y2={pos[b][1]} stroke="rgba(236,232,225,.16)" strokeDasharray="2 3" />
+      ))}
+      {NEXUSES.map((n) => {
+        const [x, y] = pos[n.id];
+        const fill = nexusFill(nodes, n.id);
+        const locked = !unlocked.includes(n.id);
+        const count = nodes.filter((f) => f.nexus === n.id).length;
+        return (
+          <g key={n.id} opacity={locked ? 0.35 : 1}>
+            {Array.from({ length: Math.min(count, 6) }).map((_, i) => {
+              const a = i * 1.9 + x;
+              return <circle key={i} cx={x + Math.cos(a) * 15} cy={y + Math.sin(a) * 12} r={1.8} fill={n.color} />;
+            })}
+            <circle cx={x} cy={y} r={7 + fill * 5} fill={n.color} opacity={0.18 + fill * 0.3} style={{ transition: "all 1.6s cubic-bezier(.16,1,.3,1)" }} />
+            <circle cx={x} cy={y} r={3.5} fill={n.color} />
+          </g>
+        );
+      })}
     </svg>
   );
 }
 
-/* ---------------- проект (справа) ---------------- */
-function ProjectRail({ shown }: { shown: boolean }) {
-  const count = useFoundation((s) => s.nodes.length);
-  const roman = ["i", "ii", "iii"];
+function DataMini() {
+  const tree = useProjectTree();
+  const c = countTree(tree);
+  const fresh = useMemo(() => {
+    const out: string[] = [];
+    const walk = (n: typeof tree) => n.children?.forEach((ch) => (ch.kind === "file" ? ch.fresh && out.push(ch.name) : walk(ch)));
+    walk(tree);
+    return out.at(-1);
+  }, [tree]);
   return (
-    <aside
-      aria-label="Проект"
-      className="reveal absolute right-[var(--gutter)] top-1/2 hidden -translate-y-1/2 lg:block"
-      data-shown={shown}
-    >
+    <div className="space-y-1.5 text-[12px]">
+      {tree.children!.slice(1, 4).map((f) => (
+        <p key={f.name} className="flex items-center gap-2 text-ivory-60">
+          <FolderGlyph />
+          <span className="flex-1 truncate">{f.name}</span>
+          <span className="text-ivory-40">{countTree(f).files}</span>
+        </p>
+      ))}
+      <p className="flex items-center gap-2 truncate pt-1 text-sun">
+        <FileGlyph />
+        <span className="truncate">{fresh ?? `${c.files} файлов · ${c.folders - 1} папок`}</span>
+      </p>
+    </div>
+  );
+}
+
+function TeamMini() {
+  const profile = useFoundation((s) => s.profile);
+  const step = useFoundation((s) => s.step);
+  const nodes = useFoundation((s) => s.nodes);
+  const unlocked = useFoundation((s) => s.unlocked);
+  const doing = founderTasks(step, nodes, unlocked).find((t) => t.status === "doing");
+  return (
+    <div>
+      <div className="flex items-center">
+        <Avatar name={profile.name} size={30} />
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="-ml-2 size-[30px] rounded-full border border-dashed border-hair-strong bg-graphite" aria-hidden />
+        ))}
+        <span className="ml-3 text-[12px] text-ivory-60">{profile.name ?? "Вы"} + 3 роли</span>
+      </div>
+      {doing && <p className="mt-2.5 truncate text-[12px] text-ivory-60">в работе: {doing.title.toLowerCase()}</p>}
+    </div>
+  );
+}
+
+const ACTIONS: { id: Exclude<Panel, null>; title: string; hint: string; Mini: () => React.JSX.Element }[] = [
+  { id: "graph", title: "Граф", hint: "база знаний проекта", Mini: GraphMini },
+  { id: "data", title: "Общие данные", hint: "файлы и папки", Mini: DataMini },
+  { id: "team", title: "Команда", hint: "кто что делает", Mini: TeamMini },
+];
+
+function ProjectRail({ shown }: { shown: boolean }) {
+  const setPanel = useFoundation((s) => s.setPanel);
+  const count = useFoundation((s) => s.nodes.length);
+  return (
+    <aside aria-label="Проект" className="reveal w-full px-[var(--gutter)] lg:absolute lg:right-[var(--gutter)] lg:top-1/2 lg:w-[270px] lg:-translate-y-1/2 lg:px-0" data-shown={shown}>
       <p className="caps mb-5">Проект</p>
-      <ul className="space-y-5">
-        {WORKSPACE_ACTIONS.map((a, i) => (
-          <li key={a.id}>
-            <a href={a.id === "graph" ? "#cortex" : "#cortex"} className="group flex items-baseline gap-4">
-              <span className="serif w-6 text-[15px] italic text-ivory-40">{roman[i]}.</span>
-              <span>
-                <span className="serif block text-[21px] leading-none transition-colors group-hover:text-sun">
-                  {a.title}
-                  {a.id === "graph" && <span className="ml-2 align-top text-[11px] not-italic text-ivory-60">{count}</span>}
+      <ul className="grid grid-cols-3 gap-2 lg:grid-cols-1 lg:gap-3">
+        {ACTIONS.map(({ id, title, hint, Mini }, i) => (
+          <li key={id}>
+            <button
+              type="button"
+              onClick={() => setPanel(id)}
+              aria-haspopup="dialog"
+              className="group relative w-full overflow-hidden rounded-[20px] border border-hair bg-graphite-2/70 p-3 text-left backdrop-blur-md transition-[border-color,transform] duration-150 hover:border-hair-strong active:scale-[0.98] lg:p-4"
+            >
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="serif text-[18px] leading-none transition-colors group-hover:text-sun lg:text-[22px]">
+                  {title}
+                  {id === "graph" && <span className="ml-1.5 align-top font-sans text-[11px] text-ivory-60">{count}</span>}
                 </span>
-                <span className="mt-1.5 block text-[12px] text-ivory-60">{a.hint}</span>
+                <span className="hidden text-[11px] italic text-ivory-40 lg:inline">{["i", "ii", "iii"][i]}.</span>
               </span>
-            </a>
+              <span className="mt-1 hidden text-[11px] text-ivory-40 lg:block">{hint}</span>
+              <span className="mt-3 hidden lg:block">
+                <Mini />
+              </span>
+            </button>
           </li>
         ))}
       </ul>
     </aside>
-  );
-}
-
-/* ---------------- приветствие ---------------- */
-function Greeting() {
-  const phase = useFoundation((s) => s.phase);
-  return (
-    <AnimatePresence>
-      {phase === "greeting" && (
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 top-[16%] z-10 text-center"
-          initial={{ opacity: 0, filter: "blur(20px)" }}
-          animate={{ opacity: 1, filter: "blur(0px)", transition: { duration: 1.6, delay: 1.1, ease: EASE } }}
-          exit={{ opacity: 0, filter: "blur(20px)", transition: { duration: 0.8, ease: EASE } }}
-        >
-          <p className="serif text-[clamp(44px,7vw,96px)] leading-none">Привет!</p>
-          <p className="mt-4 text-[15px] text-ivory-60">Я Ментор. Я не соглашаюсь — я проверяю.</p>
-        </motion.div>
-      )}
-    </AnimatePresence>
   );
 }
 
@@ -298,6 +371,15 @@ export function Hero() {
   const section = useRef<HTMLElement>(null);
   const [inView, setInView] = useState(true);
   const shown = phase === "greeting" || phase === "ready";
+
+  // заставка — только при первом визите
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SEEN_KEY) && useFoundation.getState().phase === "gate") skipIntro();
+    } catch {
+      /* нет доступа к storage — покажем заставку */
+    }
+  }, [skipIntro]);
 
   // пауза рендера, когда герой вне вьюпорта
   useEffect(() => {
@@ -317,29 +399,28 @@ export function Hero() {
     <>
       <Gate />
       <TopBar />
-      <section ref={section} id="top" aria-label="Демо-сессия с Ментором" className="relative h-[100svh] min-h-[640px] overflow-hidden">
+      <section
+        ref={section}
+        id="top"
+        aria-label="Демо-сессия с Ментором"
+        className="relative flex min-h-[100svh] flex-col items-center gap-8 overflow-hidden pb-10 pt-[calc(64px+min(30vw,150px))] lg:block lg:h-[100svh] lg:min-h-[680px] lg:p-0"
+      >
         <div className="absolute inset-0">{webgl && <Scene active={inView} />}</div>
 
-        {webgl === false && (
-          <Mascot className="absolute left-1/2 top-[14%] w-[min(46vw,240px)] -translate-x-1/2" />
-        )}
+        {webgl === false && <RadiantMark size={96} className="absolute left-1/2 top-[90px] -translate-x-1/2 text-ivory lg:top-[12%]" />}
 
-        <Greeting />
-
-        <div className="pointer-events-none absolute inset-0">
-          <div className="pointer-events-auto absolute left-1/2 top-[54%] -translate-x-1/2 -translate-y-1/2 lg:top-[57%]">
-            <Ring shown={shown} />
-          </div>
-          <div className="absolute inset-x-0 bottom-[max(16px,env(safe-area-inset-bottom))] lg:top-0 lg:bottom-0">
-            <AgentsRail shown={shown} />
-          </div>
-          <div className="pointer-events-auto">
-            <ProjectRail shown={shown} />
-          </div>
+        <div className="relative lg:absolute lg:left-1/2 lg:top-[58%] lg:-translate-x-1/2 lg:-translate-y-1/2">
+          <Ring shown={shown} />
+        </div>
+        <div className="relative w-full lg:static">
+          <ToolsRail shown={shown} />
+        </div>
+        <div className="relative w-full lg:static">
+          <ProjectRail shown={shown} />
         </div>
 
         {(phase === "intro" || phase === "greeting") && !reduce && (
-          <button type="button" onClick={skipIntro} className="link-quiet absolute bottom-6 left-1/2 z-20 -translate-x-1/2 text-[12px] text-ivory-60 max-lg:hidden">
+          <button type="button" onClick={skipIntro} className="link-quiet absolute bottom-6 left-1/2 z-20 -translate-x-1/2 text-[12px] text-ivory-60">
             Пропустить
           </button>
         )}
@@ -358,6 +439,10 @@ export function Hero() {
           </span>
         </button>
       </section>
+
+      <GraphWindow />
+      <DataWindow />
+      <TeamWindow />
     </>
   );
 }

@@ -1,10 +1,10 @@
 import * as THREE from "three";
 
 /**
- * Общее мутабельное состояние сцены (не React-стейт — читается в useFrame каждый кадр).
- * DOM-якоря (кольцо, слоты агентов) переводятся в мировые координаты на плоскости z = 0.
+ * Общее мутабельное состояние сцены (читается в useFrame каждый кадр, не React-стейт).
+ * DOM-якорь кольца переводится в мировые координаты на плоскости z = 0.
  */
-export type IntroMode = "hidden" | "intro" | "peek";
+export type RadiantMode = "intro" | "hover";
 
 export const stage = {
   ring: { center: new THREE.Vector3(0, -0.4, 0), radius: 1.6, valid: false },
@@ -13,25 +13,16 @@ export const stage = {
   tier: "high" as "high" | "low",
   /** прокси, который анимирует GSAP-таймлайн заставки */
   intro: {
-    mode: "hidden" as IntroMode,
-    // радиант
+    mode: "intro" as RadiantMode,
     radX: 0,
-    radY: 9,
-    radZ: -40,
+    radY: 40,
+    radZ: -46,
     radScale: 1,
     radOpen: 0, // 0 — цельный кристалл, 1 — раскрыт
-    radFade: 1,
     ripple: 0,
     beam: 0,
     burstT: -1, // секунды с момента взрыва, -1 — не было
     disc: 0, // проявление стеклянного диска окна
-    // маскот
-    mX: 0,
-    mY: -2,
-    mZ: 0,
-    mScale: 0.05,
-    squash: 0, // >0 — сплющен, <0 — вытянут
-    wave: 0,
   },
 };
 

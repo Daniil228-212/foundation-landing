@@ -333,3 +333,34 @@ select {
     animation: none;
   }
 }
+
+/* повторный визит — без заставки */
+html[data-seen] .gate {
+  display: none;
+}
+
+/* граф: мягкая пульсация нераскрытых Нексусов */
+.hub-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hub-pulse 2.4s var(--ease-atelier) infinite;
+}
+@keyframes hub-pulse {
+  from {
+    transform: scale(0.85);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.graph-node:focus-visible circle:last-of-type {
+  stroke: var(--sun);
+  stroke-width: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub-pulse {
+    animation: none;
+  }
+}

@@ -37,7 +37,15 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru" className={`${cormorant.variable} ${manrope.variable}`}>
+    <html lang="ru" className={`${cormorant.variable} ${manrope.variable}`} suppressHydrationWarning>
+      <head>
+        {/* повторный визит: прячем вход до гидратации, чтобы он не мигал */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("fdn-intro-seen"))document.documentElement.dataset.seen="1"}catch(e){}`,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -7,10 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import gsap from "gsap";
 import { easing } from "maath";
-import { AGENTS } from "@/content/agents";
-import { useFoundation } from "@/store/foundation";
-import { Mascot3D } from "./Mascot3D";
-import { AgentBlob } from "./AgentBlob";
+import { useFoundation, type MentorState } from "@/store/foundation";
 import { anchorToWorld, stage } from "./stage";
 
 const PIGMENTS = ["#ffd54f", "#8fb5ae", "#a99fc6", "#d29f98", "#a9bb93", "#cfa874", "#fff3d1"];
@@ -104,11 +101,22 @@ function Disc() {
   );
 }
 
-/* ---------------- Радиант: кристалл-логотип ---------------- */
+/* ---------------- Радиант: кристалл-логотип и «присутствие» Ментора ---------------- */
+const MOOD: Record<MentorState, { color: string; glow: number; spin: number }> = {
+  idle: { color: "#ffd54f", glow: 2.2, spin: 1 },
+  listening: { color: "#ffe08a", glow: 3, spin: 0.6 },
+  thinking: { color: "#fff1c4", glow: 3.4, spin: 4 },
+  challenging: { color: "#ffa43a", glow: 3.2, spin: 1.6 },
+  approving: { color: "#d9f08a", glow: 5, spin: 2.4 },
+  blocking: { color: "#ff7a6a", glow: 3.4, spin: 0.3 },
+};
+
 function Radiant() {
   const g = useRef<THREE.Group>(null);
   const shell = useRef<THREE.Group>(null);
+  const inner = useRef<THREE.Group>(null);
   const core = useRef<THREE.Mesh>(null);
+  const light = useRef<THREE.PointLight>(null);
   const lines = useMemo(() => {
     const a = new THREE.EdgesGeometry(new THREE.DodecahedronGeometry(0.62));
     const b = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(0.86, 1));
@@ -116,35 +124,73 @@ function Radiant() {
   }, []);
   const lineMatA = useMemo(() => new THREE.LineBasicMaterial({ color: "#fff1c4", transparent: true, toneMapped: false }), []);
   const lineMatB = useMemo(() => new THREE.LineBasicMaterial({ color: "#c9c2e6", transparent: true, opacity: 0.55 }), []);
+  const live = useRef({ glow: 2.2, spin: 1, color: new THREE.Color("#ffd54f"), angle: 0, lean: 0 });
+  const target = useMemo(() => new THREE.Color(), []);
 
   useFrame((state, dt) => {
     const I = stage.intro;
-    if (!g.current || !shell.current || !core.current) return;
-    g.current.visible = I.radFade > 0.01 && I.radY < 20;
+    if (!g.current || !shell.current || !core.current || !inner.current) return;
+    dt = Math.min(dt, 1 / 20);
+    const t = state.clock.elapsedTime;
+    const mentor = useFoundation.getState().mentor;
+    const L = live.current;
+
+    if (I.mode === "hover") {
+      // собирается и парит над кольцом
+      const c = stage.ring.center;
+      const R = stage.ring.radius;
+      const ty = c.y + R + 0.42 * R + Math.sin(t * 0.9) * 0.04 * R;
+      I.radX = THREE.MathUtils.damp(I.radX, c.x, 3, dt);
+      I.radY = THREE.MathUtils.damp(I.radY, ty, 3, dt);
+      I.radZ = THREE.MathUtils.damp(I.radZ, 0, 3, dt);
+      I.radScale = THREE.MathUtils.damp(I.radScale, 0.3 * R, 3, dt);
+      I.radOpen = THREE.MathUtils.damp(I.radOpen, mentor === "approving" ? 0.18 : 0, 4, dt);
+    }
+
+    const m = MOOD[mentor];
+    L.glow = THREE.MathUtils.damp(L.glow, m.glow, 4, dt);
+    L.spin = THREE.MathUtils.damp(L.spin, m.spin, 3, dt);
+    L.color.lerp(target.set(m.color), 1 - Math.exp(-4 * dt));
+    L.angle += dt * 0.5 * L.spin;
+    L.lean = THREE.MathUtils.damp(L.lean, mentor === "listening" ? 0.45 : 0, 3, dt);
+
+    g.current.visible = I.radY < 20;
     g.current.position.set(I.radX, I.radY, I.radZ);
     g.current.scale.setScalar(I.radScale);
-    const t = state.clock.elapsedTime;
-    shell.current.rotation.set(t * 0.4, t * 0.6, 0);
+    g.current.rotation.x = L.lean + stage.pointer.y * -0.2;
+    g.current.rotation.y = stage.pointer.x * 0.35;
+
+    shell.current.rotation.set(L.angle * 0.8, L.angle * 1.2, 0);
+    inner.current.rotation.set(-L.angle, L.angle * 0.6, L.angle * 0.3);
     shell.current.scale.setScalar(1 + I.radOpen * 2.4);
-    lineMatA.opacity = (1 - I.radOpen) * I.radFade;
-    lineMatB.opacity = 0.55 * (1 - I.radOpen) * I.radFade;
+    lineMatA.opacity = 1 - I.radOpen * 0.85;
+    lineMatB.opacity = 0.55 * (1 - I.radOpen * 0.85);
+    lineMatA.color.copy(L.color).lerp(target.set("#ffffff"), 0.55);
+
     const cm = core.current.material as THREE.MeshStandardMaterial;
-    cm.emissiveIntensity = (2.2 + I.radOpen * 6 + Math.sin(t * 3) * 0.3) * I.radFade;
-    cm.opacity = I.radFade;
-    core.current.rotation.y += dt * 0.8;
+    const pulse = mentor === "thinking" ? Math.sin(t * 8) * 0.8 : Math.sin(t * 2.2) * 0.25;
+    cm.emissive.copy(L.color);
+    cm.emissiveIntensity = L.glow + I.radOpen * 6 + pulse;
+    core.current.rotation.y += dt * 0.8 * L.spin;
+    if (light.current) {
+      light.current.color.copy(L.color);
+      light.current.intensity = 4 + L.glow;
+    }
   });
 
   return (
     <group ref={g}>
       <mesh ref={core}>
         <icosahedronGeometry args={[0.32, 0]} />
-        <meshStandardMaterial color="#ffe9a8" emissive="#ffd54f" emissiveIntensity={2.2} transparent toneMapped={false} flatShading />
+        <meshStandardMaterial color="#ffe9a8" emissive="#ffd54f" emissiveIntensity={2.2} toneMapped={false} flatShading />
       </mesh>
       <group ref={shell}>
         <lineSegments geometry={lines.a} material={lineMatA} />
+      </group>
+      <group ref={inner}>
         <lineSegments geometry={lines.b} material={lineMatB} />
       </group>
-      <pointLight color="#ffd54f" intensity={6} distance={8} />
+      <pointLight ref={light} color="#ffd54f" intensity={6} distance={8} />
     </group>
   );
 }
@@ -282,18 +328,17 @@ function IntroTimeline() {
 
   useEffect(() => {
     const I = stage.intro;
-    const { finishGreeting, revealUI } = useFoundation.getState();
+    const { finishIntro, revealUI } = useFoundation.getState();
     if (phase === "ready") {
-      // пропуск / reduced-motion / штатный финал — итоговое состояние
+      // пропуск / повторный визит / reduced-motion / штатный финал
       if (tlRef.current && tlRef.current.progress() < 1) tlRef.current.kill();
-      Object.assign(I, { mode: "peek", disc: 1, radFade: 0, radY: 40, beam: 0, wave: 0, squash: 0, ripple: 0, burstT: -1 });
+      if (I.mode !== "hover") Object.assign(I, { mode: "hover", radY: stage.ring.center.y + 2, radX: 0, radZ: 0, radScale: 0.4 });
+      Object.assign(I, { disc: 1, beam: 0, ripple: 0, burstT: -1 });
       return;
     }
     if (phase !== "intro" || tlRef.current) return;
     const f = stage.floorY;
-    // узкий портретный экран — маскот и прыжок компактнее
-    const k = Math.min(1, (window.innerWidth / window.innerHeight) * 1.3);
-    Object.assign(I, { radX: 2.2, radY: 10, radZ: -46, radScale: 0.7, radOpen: 0, radFade: 1, ripple: 0, beam: 0, burstT: -1, disc: 0, mode: "hidden" });
+    Object.assign(I, { mode: "intro", radX: 2.2, radY: 10, radZ: -46, radScale: 0.7, radOpen: 0, ripple: 0, beam: 0, burstT: -1, disc: 0 });
     const tl = gsap.timeline();
     tlRef.current = tl;
     // падение из космоса
@@ -301,7 +346,7 @@ function IntroTimeline() {
     // удар о глянец + отскок
     tl.to(I, { ripple: 1, duration: 1.4, ease: "power2.out" }, 1.3);
     tl.to(I, { radY: f + 3.4, duration: 0.6, ease: "power2.out" }, 1.3);
-    // раскрытие: луч и краски, проявляется интерфейс
+    // раскрытие: луч и краски, из него проявляется интерфейс
     tl.add(() => {
       I.burstT = 0;
       revealUI();
@@ -309,24 +354,10 @@ function IntroTimeline() {
     tl.to(I, { radOpen: 1, duration: 0.7, ease: "power3.out" }, 1.85);
     tl.to(I, { beam: 1, duration: 0.35, ease: "power2.out" }, 1.85);
     tl.to(I, { beam: 0, duration: 1.6, ease: "power2.inOut" }, 2.3);
-    tl.to(I, { radFade: 0, radScale: 0.4, duration: 1.4, ease: "power2.inOut" }, 2.4);
     tl.to(I, { disc: 1, duration: 1.6, ease: "power2.out" }, 2.2);
-    // маскот выпрыгивает
-    tl.add(() => Object.assign(I, { mode: "intro", mX: 0, mY: f + 3.4, mZ: -2, mScale: 0.06, squash: -0.3 }), 2.0);
-    tl.to(I, { mScale: 0.62 * k, duration: 0.95, ease: "power2.out" }, 2.0);
-    tl.to(I, { mZ: 2.6, duration: 0.95, ease: "power1.inOut" }, 2.0);
-    tl.to(I, { mY: f + 2.6 + 2.6 * k, duration: 0.45, ease: "power2.out" }, 2.0);
-    tl.to(I, { mY: f + 2.2 * 0.62 * k, duration: 0.5, ease: "power2.in" }, 2.45);
-    tl.to(I, { squash: 0.28, duration: 0.09, ease: "power2.out" }, 2.95);
-    tl.to(I, { squash: -0.08, duration: 0.18, ease: "power2.out" }, 3.04);
-    tl.to(I, { squash: 0, duration: 0.5, ease: "elastic.out(1, 0.4)" }, 3.22);
-    // приветствие, затем уходит за окно
-    tl.add(() => (I.wave = 1), 3.25);
-    tl.add(() => {
-      I.wave = 0;
-      I.mode = "peek";
-      finishGreeting();
-    }, 6.2);
+    // собирается обратно и встаёт над кольцом
+    tl.add(() => (I.mode = "hover"), 2.9);
+    tl.add(() => finishIntro(), 4.4);
   }, [phase]);
   return null;
 }
@@ -390,10 +421,6 @@ export default function Scene({ active }: { active: boolean }) {
       <Beam />
       <Burst />
       <Disc />
-      <Mascot3D />
-      {AGENTS.map((a) => (
-        <AgentBlob key={a.id} agent={a} />
-      ))}
       <IntroTimeline />
       <EffectComposer multisampling={tier === "high" ? 4 : 0}>
         <Bloom mipmapBlur intensity={0.9} luminanceThreshold={0.85} luminanceSmoothing={0.2} />

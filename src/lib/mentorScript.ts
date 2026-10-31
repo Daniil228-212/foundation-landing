@@ -9,6 +9,11 @@ export type IdeaType = "b2b" | "marketplace" | "social" | "mobile" | "generic";
 export type MascotMood = "challenging" | "approving" | "blocking" | "listening";
 
 export type Step =
+  | "name"
+  | "background"
+  | "launches"
+  | "level"
+  | "current"
   | "idea"
   | "payer"
   | "barriers"
@@ -76,9 +81,40 @@ const Q: Record<IdeaType, { payer: string; barriers: string; economics: string }
   },
 };
 
-export const OPENING = "Расскажите идею одной фразой. Я задам три неудобных вопроса.";
+export const OPENING = "Привет. Прежде чем говорить об идее, познакомимся. Как вас зовут?";
+
+export type Level = "novice" | "practitioner" | "expert";
+export type Profile = { name?: string; background?: string; launches?: string; level?: Level; current?: string };
+
+const ONBOARDING: Step[] = ["name", "background", "launches", "level", "current"];
+export const isOnboarding = (s: Step) => ONBOARDING.includes(s);
+
+/** Быстрые ответы для шагов, где они уместны */
+export const QUICK_REPLIES: Partial<Record<Step, string[]>> = {
+  level: ["Ни разу не проводил", "Проводил несколько интервью", "Делаю это регулярно"],
+  launches: ["Это мой первый проект", "Запускал, но без продаж", "Были продажи"],
+};
+
+export function detectLevel(p: Profile): Level {
+  const all = `${p.background ?? ""} ${p.launches ?? ""} ${p.level ?? ""}`.toLowerCase();
+  let score = 0;
+  if (/(?<!без )продаж|выручк|платящ|окуп|mrr|arr/.test(all)) score += 2;
+  if (/регулярно|десятки|много интервью|cusdev|кастдев/.test(all)) score += 2;
+  if (/несколько|проводил|запускал/.test(all)) score += 1;
+  const years = Number(all.match(/(\d+)\s*(год|лет)/)?.[1] ?? 0);
+  if (years >= 5) score += 1;
+  if (/первый|ни разу|нет опыта|не проводил/.test(all)) score -= 1;
+  return score >= 3 ? "expert" : score >= 1 ? "practitioner" : "novice";
+}
+
+const LEVEL_LINE: Record<Level, string> = {
+  novice: "Буду объяснять термины по ходу и начну с самого рискованного допущения.",
+  practitioner: "Без лекций: сразу к цифрам и рискам.",
+  expert: "Говорим на одном языке. Жду от вас фактов, а не ощущений.",
+};
 
 type Reply = {
+  quick?: string[];
   text: string;
   mood: MascotMood;
   next: Step;
@@ -97,8 +133,9 @@ const clip = (s: string, n = 42) => (s.length > n ? s.slice(0, n - 1).trimEnd() 
 export function respond(
   step: Step,
   text: string,
-  ctx: { type: IdeaType; nodes: CortexNode[]; retried: boolean },
-): Reply {
+  ctx: { type: IdeaType; nodes: CortexNode[]; retried: boolean; profile: Profile },
+): Reply & { profile?: Profile } {
+  if (isOnboarding(step)) return onboard(step, text, ctx.profile);
   const q = Q[ctx.type];
   const objective = isObjective(text);
   const status: NodeStatus = objective ? "check" : "assume";
@@ -198,4 +235,59 @@ export function nexusFill(nodes: CortexNode[], nx: NexusId) {
     .filter((n) => n.nexus === nx)
     .reduce((s, n) => s + (n.status === "ok" ? 1 : n.status === "check" ? 0.75 : n.status === "assume" ? 0.25 : 0), 0);
   return Math.min(1, score / need[nx]);
+}
+
+/** Знакомство: понять уровень знаний, прежде чем спорить об идее */
+function onboard(step: Step, text: string, profile: Profile): Reply & { profile: Profile } {
+  const p = { ...profile };
+  switch (step) {
+    case "name": {
+      p.name = clip(text.replace(/^(меня зовут|я)\s+/i, "").split(/[,.!]/)[0], 24);
+      return { text: `${p.name}, чем вы занимаетесь и сколько лет в этом?`, mood: "listening", next: "background", nodes: [], profile: p };
+    }
+    case "background":
+      p.background = text;
+      return {
+        text: "Запускали продукты раньше? Что получилось, а что нет?",
+        mood: "listening",
+        next: "launches",
+        nodes: [],
+        profile: p,
+        quick: QUICK_REPLIES.launches,
+      };
+    case "launches":
+      p.launches = text;
+      return {
+        text: "Проводили проблемные интервью с клиентами?",
+        mood: "listening",
+        next: "level",
+        nodes: [],
+        profile: p,
+        quick: QUICK_REPLIES.level,
+      };
+    case "level": {
+      p.level = detectLevel({ ...p, level: undefined, background: `${p.background} ${text}` });
+      return { text: "Над чем работаете прямо сейчас, какая задача горит?", mood: "listening", next: "current", nodes: [], profile: p };
+    }
+    default: {
+      p.current = text;
+      const lvl = p.level ?? "novice";
+      const founder: CortexNode = {
+        id: nid("founder"),
+        nexus: "ops",
+        kind: "audience",
+        label: `Фаундер: ${p.name ?? "вы"} · ${{ novice: "новичок", practitioner: "практик", expert: "эксперт" }[lvl]}`,
+        status: "ok",
+        links: [],
+      };
+      const task: CortexNode = { id: nid("task"), nexus: "ops", kind: "hypothesis", label: "Текущая задача: " + clip(text, 30), status: "check", links: [founder.id] };
+      return {
+        text: `${LEVEL_LINE[lvl]} Теперь идея — одной фразой.`,
+        mood: "approving",
+        next: "idea",
+        nodes: [founder, task],
+        profile: p,
+      };
+    }
+  }
 }

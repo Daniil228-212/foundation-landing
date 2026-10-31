@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:preview": "STATIC_EXPORT=1 next build && python3 scripts/prepare_preview.py out preview"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

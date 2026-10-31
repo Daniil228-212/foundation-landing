@@ -125,6 +125,8 @@ function GraphCanvas({ expanded, toggle, onSelect, selected }: { expanded: Set<N
   const applyView = () => {
     const v = view.current;
     viewEl.current?.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.k})`);
+    // масштаб в CSS — от него зависит прозрачность подписей
+    viewEl.current?.style.setProperty("--k", String(v.k));
   };
 
   // симуляция: сохраняем позиции, новые узлы «вырастают» из родителя
@@ -303,7 +305,6 @@ function GraphCanvas({ expanded, toggle, onSelect, selected }: { expanded: Set<N
             })}
             {graph.nodes.map((n) => {
               const on = !neighbours || neighbours.has(n.id);
-              const showLabel = n.kind !== "leaf" || neighbours?.has(n.id) || expanded.has(n.nexus);
               return (
                 <g
                   key={n.id}
@@ -336,9 +337,14 @@ function GraphCanvas({ expanded, toggle, onSelect, selected }: { expanded: Set<N
                   />
                   {n.kind === "hub" && <circle r={n.r * 0.42} fill={n.color} />}
                   {selected === n.id && <circle r={n.r + 5} fill="none" stroke="#ffd54f" strokeWidth={1.2} />}
-                  {showLabel && (
+                  {(
                     <text
                       y={n.kind === "hub" ? n.r + 20 : -n.r - 7}
+                      style={{
+                        // чем крупнее узел и сильнее зум, тем виднее подпись; мелкие — только при приближении
+                        opacity: n.kind === "hub" || neighbours?.has(n.id) ? 1 : `clamp(0, calc((var(--k, 1) * ${n.r} - 7) / 10), 1)`,
+                        transition: "opacity .3s",
+                      }}
                       textAnchor="middle"
                       fill={n.kind === "fact" ? "#ece8e1" : n.kind === "hub" ? "#ece8e1" : "rgba(236,232,225,.7)"}
                       fontSize={n.kind === "hub" ? 17 : n.kind === "branch" ? 12 : 10.5}

@@ -98,7 +98,8 @@ export const QUICK_REPLIES: Partial<Record<Step, string[]>> = {
 export function detectLevel(p: Profile): Level {
   const all = `${p.background ?? ""} ${p.launches ?? ""} ${p.level ?? ""}`.toLowerCase();
   let score = 0;
-  if (/(?<!без )продаж|выручк|платящ|окуп|mrr|arr/.test(all)) score += 2;
+  // «без продаж» не считается опытом продаж (без lookbehind — его нет в Safari < 16.4)
+  if (/продаж|выручк|платящ|окуп|mrr|arr/.test(all.replace(/без продаж\S*/g, ""))) score += 2;
   if (/регулярно|десятки|много интервью|cusdev|кастдев/.test(all)) score += 2;
   if (/несколько|проводил|запускал/.test(all)) score += 1;
   const years = Number(all.match(/(\d+)\s*(год|лет)/)?.[1] ?? 0);
@@ -139,7 +140,10 @@ export function respond(
   const q = Q[ctx.type];
   const objective = isObjective(text);
   const status: NodeStatus = objective ? "check" : "assume";
-  const find = (k: CortexNode["kind"]) => ctx.nodes.filter((n) => n.kind === k).at(-1);
+  const find = (k: CortexNode["kind"]) => {
+    const list = ctx.nodes.filter((n) => n.kind === k);
+    return list[list.length - 1];
+  };
 
   if (wantsToSkip(text) && step !== "idea" && step !== "done") {
     return {

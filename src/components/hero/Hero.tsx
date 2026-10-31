@@ -14,6 +14,7 @@ import { Avatar, founderTasks, TeamWindow } from "@/components/panels/TeamWindow
 import { Gate } from "./Gate";
 import { RadiantMark } from "./RadiantMark";
 import { TopBar } from "./TopBar";
+import { SceneBoundary } from "@/components/three/SceneBoundary";
 
 const Scene = dynamic(() => import("@/components/three/Scene"), { ssr: false });
 
@@ -284,7 +285,7 @@ function DataMini() {
     const out: string[] = [];
     const walk = (n: typeof tree) => n.children?.forEach((ch) => (ch.kind === "file" ? ch.fresh && out.push(ch.name) : walk(ch)));
     walk(tree);
-    return out.at(-1);
+    return out[out.length - 1];
   }, [tree]);
   return (
     <div className="space-y-1.5 text-[12px]">
@@ -405,7 +406,13 @@ export function Hero() {
         aria-label="Демо-сессия с Ментором"
         className="relative flex min-h-[100svh] flex-col items-center gap-8 overflow-hidden pb-10 pt-[calc(64px+min(30vw,150px))] lg:block lg:h-[100svh] lg:min-h-[680px] lg:p-0"
       >
-        <div className="absolute inset-0">{webgl && <Scene active={inView} />}</div>
+        {webgl && (
+          <SceneBoundary fallback={<RadiantMark size={96} className="absolute left-1/2 top-[90px] -translate-x-1/2 text-ivory lg:top-[12%]" />}>
+            <div className="absolute inset-0">
+              <Scene active={inView} />
+            </div>
+          </SceneBoundary>
+        )}
 
         {webgl === false && <RadiantMark size={96} className="absolute left-1/2 top-[90px] -translate-x-1/2 text-ivory lg:top-[12%]" />}
 

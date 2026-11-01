@@ -1,19 +1,18 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Manrope } from "next/font/google";
+import { Inter, Noto_Serif_Display } from "next/font/google";
 import "./globals.css";
 
-const cormorant = Cormorant_Garamond({
-  variable: "--font-cormorant",
+const display = Noto_Serif_Display({
+  variable: "--font-display",
   subsets: ["latin", "cyrillic"],
-  weight: ["300", "400", "500"],
-  style: ["normal", "italic"],
+  weight: ["600", "700"],
   display: "swap",
 });
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+const ui = Inter({
+  variable: "--font-ui",
   subsets: ["latin", "cyrillic"],
-  weight: ["300", "400", "500"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
@@ -30,14 +29,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#121212",
+  themeColor: "#3d3c44",
   colorScheme: "dark",
   viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru" className={`${cormorant.variable} ${manrope.variable}`} suppressHydrationWarning>
+    <html lang="ru" className={`${display.variable} ${ui.variable}`} suppressHydrationWarning>
       <head>
         {/* повторный визит: прячем вход до гидратации, чтобы он не мигал */}
         <script

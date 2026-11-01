@@ -91,7 +91,7 @@ export function TopBar() {
             </span>
             звук: {soundOn ? "вкл" : "выкл"}
           </button>
-          <a href="#access" className="btn-atelier btn-atelier--sun !min-h-10 !px-5 text-[13px]">
+          <a href="#access" className="glass-btn !min-h-10 !px-5 !text-[13px]">
             Ранний доступ
           </a>
         </div>

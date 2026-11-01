@@ -1,61 +1,86 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AGENTS } from "@/content/agents";
+import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AGENTS, type AgentId } from "@/content/agents";
 import { NEXUSES } from "@/content/nexus";
-import { countTree } from "@/content/projectFiles";
-import { nexusFill } from "@/lib/mentorScript";
-import { SEEN_KEY, useFoundation, type Panel } from "@/store/foundation";
-import { DataWindow, FileGlyph, FolderGlyph, useProjectTree } from "@/components/panels/DataWindow";
+import { useFoundation, type Panel } from "@/store/foundation";
+import { AgentFigure } from "@/components/agents/AgentFigure";
+import { DataWindow } from "@/components/panels/DataWindow";
 import { GraphWindow } from "@/components/panels/GraphWindow";
-import { Avatar, founderTasks, TeamWindow } from "@/components/panels/TeamWindow";
-import { Gate } from "./Gate";
-import { RadiantMark } from "./RadiantMark";
+import { TeamWindow } from "@/components/panels/TeamWindow";
+import { PlasmaSphere } from "./PlasmaSphere";
 import { TopBar } from "./TopBar";
-import { SceneBoundary } from "@/components/three/SceneBoundary";
-
-const Scene = dynamic(() => import("@/components/three/Scene"), { ssr: false });
 
 const EASE = [0.16, 1, 0.3, 1] as const;
-
-/** «Проявление»: blur 20 → 0, медленная кривая Atelier */
 const develop = {
-  initial: { opacity: 0, filter: "blur(20px)" },
-  animate: { opacity: 1, filter: "blur(0px)", transition: { duration: 1.4, ease: EASE } },
-  exit: { opacity: 0, filter: "blur(12px)", transition: { duration: 0.35, ease: EASE } },
+  initial: { opacity: 0, filter: "blur(14px)" },
+  animate: { opacity: 1, filter: "blur(0px)", transition: { duration: 1, ease: EASE } },
+  exit: { opacity: 0, filter: "blur(10px)", transition: { duration: 0.25, ease: EASE } },
 };
 
-function useWebGL() {
-  const [ok, setOk] = useState<boolean | null>(null);
-  useEffect(() => {
-    try {
-      const c = document.createElement("canvas");
-      setOk(!!(c.getContext("webgl2") || c.getContext("webgl")));
-    } catch {
-      setOk(false);
-    }
-  }, []);
-  return ok;
+/* ---------------- фон по фото 1 ---------------- */
+const PRISMS = [
+  { l: "12%", t: "18%", rot: "-30deg", dx: "14px", dy: "-20px", d: "0s", s: 1 },
+  { l: "83%", t: "21%", rot: "25deg", dx: "-12px", dy: "18px", d: "-4s", s: 0.8 },
+  { l: "88%", t: "30%", rot: "-10deg", dx: "10px", dy: "-14px", d: "-8s", s: 1.2 },
+  { l: "22%", t: "46%", rot: "70deg", dx: "-16px", dy: "10px", d: "-2s", s: 1.4 },
+  { l: "79%", t: "64%", rot: "15deg", dx: "12px", dy: "16px", d: "-6s", s: 0.9 },
+  { l: "28%", t: "84%", rot: "-45deg", dx: "18px", dy: "-12px", d: "-10s", s: 1 },
+  { l: "62%", t: "90%", rot: "40deg", dx: "-10px", dy: "-18px", d: "-3s", s: 0.7 },
+];
+
+function Backdrop() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div
+        className="absolute inset-0"
+        style={{
+          background: [
+            "radial-gradient(42% 30% at 92% 6%, rgba(149,130,132,.85), transparent 70%)",
+            "radial-gradient(70% 34% at 50% 104%, rgba(238,238,238,.95), rgba(205,206,211,.5) 45%, transparent 75%)",
+            "radial-gradient(60% 45% at 50% 52%, rgba(97,87,96,.55), transparent 70%)",
+            "linear-gradient(180deg, #3d3c44 0%, #45434e 38%, #4f4a54 62%, #6d6870 82%, #a69fa7 100%)",
+          ].join(","),
+        }}
+      />
+      <div className="grain absolute inset-0" />
+      {/* боковые нити */}
+      <span className="absolute inset-y-0 left-[3.5%] w-px bg-white/10" />
+      <span className="absolute inset-y-0 right-[3.5%] w-px bg-white/10" />
+      {PRISMS.map((p, i) => (
+        <span
+          key={i}
+          className="prism"
+          style={{ left: p.l, top: p.t, animationDelay: p.d, scale: String(p.s), ["--rot" as string]: p.rot, ["--dx" as string]: p.dx, ["--dy" as string]: p.dy }}
+        />
+      ))}
+    </div>
+  );
 }
 
-/* ---------------- кольцо ввода ---------------- */
-function Ring({ shown }: { shown: boolean }) {
-  const phase = useFoundation((s) => s.phase);
+/* ---------------- сфера диалога ---------------- */
+function Dashes({ flip = false }: { flip?: boolean }) {
+  return (
+    <span className={`flex items-center gap-1.5 ${flip ? "flex-row-reverse" : ""}`} aria-hidden>
+      <span className="h-[3px] w-5 rounded-full bg-white/80" />
+      <span className="h-[3px] w-2.5 rounded-full bg-white/45" />
+    </span>
+  );
+}
+
+function SphereDialog() {
   const messages = useFoundation((s) => s.messages);
-  const quick = useFoundation((s) => s.quick);
   const busy = useFoundation((s) => s.busy);
+  const quick = useFoundation((s) => s.quick);
+  const step = useFoundation((s) => s.step);
   const send = useFoundation((s) => s.send);
   const setFocused = useFoundation((s) => s.setFocused);
-  const step = useFoundation((s) => s.step);
   const [value, setValue] = useState("");
   const input = useRef<HTMLInputElement>(null);
-  const ready = phase === "ready";
 
   const mentor = [...messages].reverse().find((m) => m.from === "mentor");
   const lastUser = [...messages].reverse().find((m) => m.from === "user");
-  const placeholder = step === "name" ? "Ваше имя…" : step === "idea" ? "Ваша идея…" : "Ваш ответ…";
 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -63,8 +88,6 @@ function Ring({ shown }: { shown: boolean }) {
     send(value);
     setValue("");
   };
-
-  // быстрые ответы: полные — отправляем сразу, заготовки идей — дописываем
   const pick = (q: string) => {
     if (q.endsWith(" ") || q.endsWith(": ")) {
       setValue(q);
@@ -74,99 +97,86 @@ function Ring({ shown }: { shown: boolean }) {
 
   return (
     <div className="flex flex-col items-center">
-      <div data-ring className="reveal relative aspect-square w-[min(84vw,360px)] rounded-full lg:w-[min(52svh,480px)]" data-shown={shown}>
-        <svg className="pointer-events-none absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 100 100" aria-hidden>
-          <circle className="ring-line" cx="50" cy="50" r="49.6" fill="none" stroke="rgba(236,232,225,.38)" strokeWidth="0.25" pathLength={1} />
-          <g className="ring-glint">
-            <circle cx="50" cy="50" r="49.6" fill="none" stroke="url(#glint)" strokeWidth="0.5" strokeDasharray="22 290" />
-          </g>
-          <defs>
-            <linearGradient id="glint">
-              <stop offset="0" stopColor="#ffd54f" stopOpacity="0" />
-              <stop offset="1" stopColor="#ffd54f" stopOpacity="0.9" />
-            </linearGradient>
-          </defs>
-        </svg>
-
-        <AnimatePresence>
-          {phase === "greeting" && (
-            <motion.div
-              key="hello"
-              className="absolute inset-0 flex flex-col items-center justify-center text-center"
-              initial={{ opacity: 0, filter: "blur(20px)" }}
-              animate={{ opacity: 1, filter: "blur(0px)", transition: { duration: 1.4, delay: 0.5, ease: EASE } }}
-              exit={{ opacity: 0, filter: "blur(16px)", transition: { duration: 0.6, ease: EASE } }}
-            >
-              <p className="serif text-[clamp(44px,6vw,80px)] leading-none">Привет</p>
-              <p className="mt-3 max-w-[22ch] text-[14px] text-ivory-60">Я Ментор. Я не соглашаюсь — я проверяю.</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="reveal absolute inset-[13%] flex flex-col items-center justify-center text-center" data-shown={ready}>
-          <div className="flex min-h-[52%] w-full flex-col items-center justify-end gap-3" aria-live="polite">
-            <AnimatePresence mode="wait">
-              {lastUser && (
-                <motion.p key={"u" + lastUser.id} {...develop} className="line-clamp-2 max-w-[92%] text-[13px] leading-snug text-ivory-60">
-                  <span className="sr-only">Вы: </span>
-                  {lastUser.text}
-                </motion.p>
-              )}
-            </AnimatePresence>
+      <div data-sphere className="relative aspect-square w-[min(88vw,400px)] rounded-full lg:w-[min(64svh,580px)]">
+        {/* матовое стекло внутри кольца */}
+        <div
+          className="absolute inset-0 rounded-full"
+          style={{ background: "radial-gradient(70% 70% at 38% 30%, rgba(255,255,255,.07), rgba(255,255,255,.015) 60%, rgba(255,255,255,.035))" }}
+          aria-hidden
+        />
+        <div className="absolute inset-x-[13%] inset-y-[15%] flex flex-col items-center justify-center text-center">
+          <div className="flex min-h-[42%] w-full flex-col items-center justify-end" aria-live="polite">
             <AnimatePresence mode="wait">
               {busy ? (
-                <motion.p key="dots" {...develop} className="serif text-2xl tracking-[0.3em] text-ivory-60" aria-label="Ментор думает">
+                <motion.p key="dots" {...develop} className="serif text-[28px] tracking-[0.3em] text-white/70" aria-label="Ментор думает">
                   ···
                 </motion.p>
               ) : (
                 mentor && (
-                  <motion.p key={"m" + mentor.id} {...develop} className="serif text-[clamp(18px,2.1vw,25px)] italic leading-[1.22] text-ivory">
-                    <span className="sr-only">Ментор: </span>
-                    {mentor.text}
-                  </motion.p>
+                  <motion.div key={mentor.id} {...develop} className="flex items-center gap-3 sm:gap-4">
+                    <Dashes />
+                    <p className="serif text-[clamp(19px,2.2vw,30px)] leading-[1.18] text-white [text-shadow:0_1px_18px_rgba(255,255,255,.18)]">
+                      <span className="sr-only">Ментор: </span>
+                      {mentor.text}
+                    </p>
+                    <Dashes flip />
+                  </motion.div>
                 )
               )}
             </AnimatePresence>
           </div>
 
-          <form onSubmit={submit} className="mt-[7%] flex w-[86%] items-center gap-2 border-b border-hair-strong pb-1.5 focus-within:border-ivory-60">
-            <label htmlFor="ring-input" className="sr-only">
+          {/* волосяная линия с маркером */}
+          <div className="relative mt-5 h-px w-full bg-gradient-to-r from-white/10 via-white/45 to-white/10" aria-hidden>
+            <svg className="absolute -top-[4px] left-0" width="8" height="6" viewBox="0 0 8 6">
+              <path d="M0 0 H8 L4 6 Z" fill="rgba(255,255,255,.75)" />
+            </svg>
+          </div>
+
+          <div className="mt-3 min-h-[22px]">
+            <AnimatePresence mode="wait">
+              {lastUser && (
+                <motion.p key={lastUser.id} {...develop} className="line-clamp-2 text-[13px] text-white/70">
+                  <span className="sr-only">Вы: </span>
+                  {lastUser.text}
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <form onSubmit={submit} className="mt-[6%] flex w-full items-center gap-3">
+            <label htmlFor="sphere-input" className="sr-only">
               Ответ Ментору
             </label>
-            <input
-              ref={input}
-              id="ring-input"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              disabled={!ready}
-              enterKeyHint="send"
-              autoComplete={step === "name" ? "given-name" : "off"}
-              placeholder={placeholder}
-              className="min-w-0 flex-1 bg-transparent py-1 text-center text-[16px] font-light text-ivory placeholder:text-ivory-40 focus:outline-none focus-visible:outline-none"
-            />
-            <button
-              type="submit"
-              aria-label="Отправить"
-              disabled={!ready || !value.trim()}
-              className="grid size-8 shrink-0 place-items-center rounded-full border border-hair-strong text-ivory transition-[transform,opacity] duration-150 active:scale-95 disabled:opacity-30"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-                <path d="M5 12h14M13 6l6 6-6 6" />
+            <span className="glass-btn flex-1 !justify-start !px-5">
+              <input
+                ref={input}
+                id="sphere-input"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                enterKeyHint="send"
+                autoComplete={step === "name" ? "given-name" : "off"}
+                className="w-full min-w-0 bg-transparent text-[16px] font-normal text-white [text-shadow:none] placeholder:text-white/55 focus:outline-none focus-visible:outline-none"
+              />
+            </span>
+            <button type="submit" aria-label="Отправить" disabled={!value.trim() || busy} className="glass-round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 19V5M6 11l6-6 6 6" />
               </svg>
             </button>
           </form>
         </div>
       </div>
 
-      <div className="mt-6 min-h-[52px]">
+      <div className="mt-4 min-h-[44px] lg:mt-6">
         <AnimatePresence mode="wait">
-          {ready && quick.length > 0 && (
-            <motion.ul key={quick.join()} {...develop} className="flex max-w-[92vw] flex-wrap justify-center gap-x-5 gap-y-2" aria-label="Быстрые ответы">
+          {quick.length > 0 && !busy && (
+            <motion.ul key={quick.join()} {...develop} className="flex max-w-[92vw] flex-wrap justify-center gap-2" aria-label="Быстрые ответы">
               {quick.map((q) => (
                 <li key={q}>
-                  <button type="button" onClick={() => pick(q)} className="link-quiet text-[13px] text-ivory-60">
+                  <button type="button" onClick={() => pick(q)} className="glass-btn !min-h-9 !px-4 !text-[13px]">
                     {q.trim().replace(/:$/, "")}
                   </button>
                 </li>
@@ -179,13 +189,12 @@ function Ring({ shown }: { shown: boolean }) {
   );
 }
 
-/* ---------------- инструменты (слева) ---------------- */
-function ToolsRail({ shown }: { shown: boolean }) {
-  const [open, setOpen] = useState<string | null>(null);
+/* ---------------- агенты ---------------- */
+function Agents() {
+  const [open, setOpen] = useState<AgentId | null>(null);
   return (
-    <aside aria-label="Инструменты" className="reveal w-full lg:absolute lg:left-[var(--gutter)] lg:top-1/2 lg:w-[250px] lg:-translate-y-1/2" data-shown={shown}>
-      <p className="caps mb-5 px-[var(--gutter)] lg:px-0">Инструменты</p>
-      <ul className="no-scrollbar flex snap-x gap-2 overflow-x-auto px-[var(--gutter)] lg:flex-col lg:gap-5 lg:overflow-visible lg:px-0">
+    <aside aria-label="ИИ-агенты" className="w-full lg:absolute lg:left-[calc(3.5%+28px)] lg:top-1/2 lg:w-auto lg:-translate-y-1/2">
+      <ul className="no-scrollbar flex snap-x justify-start gap-1 overflow-x-auto px-[var(--gutter)] lg:flex-col lg:gap-2 lg:overflow-visible lg:px-0">
         {AGENTS.map((a) => {
           const isOpen = open === a.id;
           return (
@@ -194,40 +203,36 @@ function ToolsRail({ shown }: { shown: boolean }) {
                 type="button"
                 aria-expanded={isOpen}
                 onClick={() => setOpen(isOpen ? null : a.id)}
-                className={`group rounded-2xl border border-hair px-4 py-3 text-left transition-[border-color,transform] duration-150 active:scale-[0.98] lg:w-full lg:border-0 lg:p-0 ${a.gated ? "opacity-45" : ""}`}
+                className="group flex w-[96px] flex-col items-center rounded-2xl py-1 transition-transform duration-150 active:scale-[0.96]"
               >
-                <span className="flex items-center gap-2 text-[11px] tracking-[0.18em] text-ivory-60 uppercase">
-                  <span className="size-1.5 rounded-full" style={{ background: a.color }} aria-hidden />
-                  агент · {a.name}
-                  {a.gated && <span className="normal-case tracking-normal text-ivory-40">· после гейта</span>}
+                <span className="transition-transform duration-200 ease-[var(--ease-out)] group-hover:-translate-y-1">
+                  <AgentFigure id={a.id} size={68} sleeping={a.gated} className={a.gated ? "opacity-60" : ""} />
                 </span>
-                <span className="serif mt-1.5 block whitespace-nowrap text-[19px] leading-tight transition-colors group-hover:text-sun lg:whitespace-normal lg:text-[21px]">
-                  {a.tools.map((t) => t.title).join(" · ")}
-                </span>
+                <span className="-mt-0.5 whitespace-nowrap text-[10px] font-medium uppercase tracking-[0.1em] text-white/70 lg:tracking-[0.16em]">{a.name}</span>
               </button>
               <AnimatePresence>
                 {isOpen && (
                   <motion.div
                     initial={{ opacity: 0, filter: "blur(10px)", transform: "translateX(-6px)" }}
-                    animate={{ opacity: 1, filter: "blur(0px)", transform: "translateX(0px)", transition: { duration: 0.5, ease: EASE } }}
-                    exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}
-                    className="absolute left-full top-0 z-20 ml-6 hidden w-[310px] rounded-2xl border border-hair bg-graphite-2/95 p-5 backdrop-blur-xl lg:block"
+                    animate={{ opacity: 1, filter: "blur(0px)", transform: "translateX(0px)", transition: { duration: 0.4, ease: EASE } }}
+                    exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                    className="absolute left-full top-0 z-20 ml-3 hidden w-[290px] rounded-[26px] p-5 lg:block"
+                    style={{
+                      background: "linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.04))",
+                      boxShadow: "inset 0 1.5px 0 rgba(255,255,255,.8), inset 0 0 0 1px rgba(255,255,255,.25), 0 20px 40px -16px rgba(16,14,20,.6)",
+                      backdropFilter: "blur(18px)",
+                    }}
                   >
-                    <p className="caps mb-2" style={{ color: a.color }}>
-                      {a.role}
-                    </p>
-                    <p className="text-[14px] leading-relaxed text-ivory">{a.does}</p>
-                    <p className="caps mb-2 mt-4">Спросит в начале</p>
-                    <ul className="space-y-1.5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-white/70">{a.role}</p>
+                    <p className="mt-2 text-[14px] leading-relaxed">{a.does}</p>
+                    <ul className="mt-3 space-y-1">
                       {a.firstQuestions.map((q) => (
-                        <li key={q} className="serif text-[17px] italic leading-snug">
-                          — {q}
+                        <li key={q} className="serif text-[15px] leading-snug">
+                          {q}
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-4 text-[12px] text-ivory-60">
-                      Видит только: {a.scope.map((s) => NEXUSES.find((n) => n.id === s)!.title).join(", ")}
-                    </p>
+                    <p className="mt-3 text-[12px] text-white/60">{a.scope.map((s) => NEXUSES.find((n) => n.id === s)!.title).join(" · ")}</p>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -235,215 +240,68 @@ function ToolsRail({ shown }: { shown: boolean }) {
           );
         })}
       </ul>
-      <p className="mt-6 hidden max-w-[240px] text-[12px] leading-relaxed text-ivory-40 lg:block">
-        Свой ключ Claude или GPT — или инструменты по подписке.
-      </p>
     </aside>
   );
 }
 
-/* ---------------- мини-превью справа ---------------- */
-function GraphMini() {
-  const nodes = useFoundation((s) => s.nodes);
-  const unlocked = useFoundation((s) => s.unlocked);
-  const pos: Record<string, [number, number]> = { market: [34, 38], product: [92, 22], growth: [150, 46], ops: [70, 76], tech: [178, 16] };
-  return (
-    <svg viewBox="0 0 210 96" className="h-[84px] w-full" aria-hidden>
-      {[
-        ["market", "product"],
-        ["product", "growth"],
-        ["growth", "ops"],
-        ["ops", "market"],
-        ["product", "tech"],
-      ].map(([a, b]) => (
-        <line key={a + b} x1={pos[a][0]} y1={pos[a][1]} x2={pos[b][0]} y2={pos[b][1]} stroke="rgba(236,232,225,.16)" strokeDasharray="2 3" />
-      ))}
-      {NEXUSES.map((n) => {
-        const [x, y] = pos[n.id];
-        const fill = nexusFill(nodes, n.id);
-        const locked = !unlocked.includes(n.id);
-        const count = nodes.filter((f) => f.nexus === n.id).length;
-        return (
-          <g key={n.id} opacity={locked ? 0.35 : 1}>
-            {Array.from({ length: Math.min(count, 6) }).map((_, i) => {
-              const a = i * 1.9 + x;
-              return <circle key={i} cx={x + Math.cos(a) * 15} cy={y + Math.sin(a) * 12} r={1.8} fill={n.color} />;
-            })}
-            <circle cx={x} cy={y} r={7 + fill * 5} fill={n.color} opacity={0.18 + fill * 0.3} style={{ transition: "all 1.6s cubic-bezier(.16,1,.3,1)" }} />
-            <circle cx={x} cy={y} r={3.5} fill={n.color} />
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function DataMini() {
-  const tree = useProjectTree();
-  const c = countTree(tree);
-  const fresh = useMemo(() => {
-    const out: string[] = [];
-    const walk = (n: typeof tree) => n.children?.forEach((ch) => (ch.kind === "file" ? ch.fresh && out.push(ch.name) : walk(ch)));
-    walk(tree);
-    return out[out.length - 1];
-  }, [tree]);
-  return (
-    <div className="space-y-1.5 text-[12px]">
-      {tree.children!.slice(1, 4).map((f) => (
-        <p key={f.name} className="flex items-center gap-2 text-ivory-60">
-          <FolderGlyph />
-          <span className="flex-1 truncate">{f.name}</span>
-          <span className="text-ivory-40">{countTree(f).files}</span>
-        </p>
-      ))}
-      <p className="flex items-center gap-2 truncate pt-1 text-sun">
-        <FileGlyph />
-        <span className="truncate">{fresh ?? `${c.files} файлов · ${c.folders - 1} папок`}</span>
-      </p>
-    </div>
-  );
-}
-
-function TeamMini() {
-  const profile = useFoundation((s) => s.profile);
-  const step = useFoundation((s) => s.step);
-  const nodes = useFoundation((s) => s.nodes);
-  const unlocked = useFoundation((s) => s.unlocked);
-  const doing = founderTasks(step, nodes, unlocked).find((t) => t.status === "doing");
-  return (
-    <div>
-      <div className="flex items-center">
-        <Avatar name={profile.name} size={30} />
-        {[0, 1, 2].map((i) => (
-          <span key={i} className="-ml-2 size-[30px] rounded-full border border-dashed border-hair-strong bg-graphite" aria-hidden />
-        ))}
-        <span className="ml-3 text-[12px] text-ivory-60">{profile.name ?? "Вы"} + 3 роли</span>
-      </div>
-      {doing && <p className="mt-2.5 truncate text-[12px] text-ivory-60">в работе: {doing.title.toLowerCase()}</p>}
-    </div>
-  );
-}
-
-const ACTIONS: { id: Exclude<Panel, null>; title: string; hint: string; Mini: () => React.JSX.Element }[] = [
-  { id: "graph", title: "Граф", hint: "база знаний проекта", Mini: GraphMini },
-  { id: "data", title: "Общие данные", hint: "файлы и папки", Mini: DataMini },
-  { id: "team", title: "Команда", hint: "кто что делает", Mini: TeamMini },
+/* ---------------- кнопки проекта ---------------- */
+const ACTIONS: { id: Exclude<Panel, null>; title: string }[] = [
+  { id: "graph", title: "Граф" },
+  { id: "data", title: "Общие данные" },
+  { id: "team", title: "Команда" },
 ];
 
-function ProjectRail({ shown }: { shown: boolean }) {
+function ProjectActions() {
   const setPanel = useFoundation((s) => s.setPanel);
-  const count = useFoundation((s) => s.nodes.length);
   return (
-    <aside aria-label="Проект" className="reveal w-full px-[var(--gutter)] lg:absolute lg:right-[var(--gutter)] lg:top-1/2 lg:w-[270px] lg:-translate-y-1/2 lg:px-0" data-shown={shown}>
-      <p className="caps mb-5">Проект</p>
-      <ul className="grid grid-cols-3 gap-2 lg:grid-cols-1 lg:gap-3">
-        {ACTIONS.map(({ id, title, hint, Mini }, i) => (
-          <li key={id}>
-            <button
-              type="button"
-              onClick={() => setPanel(id)}
-              aria-haspopup="dialog"
-              className="group relative w-full overflow-hidden rounded-[20px] border border-hair bg-graphite-2/70 p-3 text-left backdrop-blur-md transition-[border-color,transform] duration-150 hover:border-hair-strong active:scale-[0.98] lg:p-4"
-            >
-              <span className="flex items-baseline justify-between gap-2">
-                <span className="serif text-[18px] leading-none transition-colors group-hover:text-sun lg:text-[22px]">
-                  {title}
-                  {id === "graph" && <span className="ml-1.5 align-top font-sans text-[11px] text-ivory-60">{count}</span>}
-                </span>
-                <span className="hidden text-[11px] italic text-ivory-40 lg:inline">{["i", "ii", "iii"][i]}.</span>
-              </span>
-              <span className="mt-1 hidden text-[11px] text-ivory-40 lg:block">{hint}</span>
-              <span className="mt-3 hidden lg:block">
-                <Mini />
-              </span>
+    <nav aria-label="Проект" className="w-full px-[var(--gutter)] lg:absolute lg:right-[calc(3.5%+28px)] lg:top-1/2 lg:w-auto lg:-translate-y-1/2 lg:px-0">
+      <ul className="flex flex-wrap justify-center gap-3 lg:flex-col lg:items-stretch lg:gap-4">
+        {ACTIONS.map((a) => (
+          <li key={a.id}>
+            <button type="button" aria-haspopup="dialog" onClick={() => setPanel(a.id)} className="glass-btn w-full lg:min-w-[190px]">
+              {a.title}
             </button>
           </li>
         ))}
       </ul>
-    </aside>
+    </nav>
   );
 }
 
 export function Hero() {
-  const phase = useFoundation((s) => s.phase);
   const skipIntro = useFoundation((s) => s.skipIntro);
-  const webgl = useWebGL();
-  const reduce = useReducedMotion();
-  const section = useRef<HTMLElement>(null);
-  const [inView, setInView] = useState(true);
-  const shown = phase === "greeting" || phase === "ready";
 
-  // заставка — только при первом визите
+  // заставка с падением радианта собирается последним этапом — пока сразу открываем интерфейс
   useEffect(() => {
-    try {
-      if (localStorage.getItem(SEEN_KEY) && useFoundation.getState().phase === "gate") skipIntro();
-    } catch {
-      /* нет доступа к storage — покажем заставку */
-    }
+    skipIntro();
   }, [skipIntro]);
-
-  // пауза рендера, когда герой вне вьюпорта
-  useEffect(() => {
-    const el = section.current;
-    if (!el) return;
-    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { threshold: 0.01 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-  // без WebGL — без заставки
-  useEffect(() => {
-    if (webgl === false && phase === "intro") skipIntro();
-  }, [webgl, phase, skipIntro]);
 
   return (
     <>
-      <Gate />
       <TopBar />
       <section
-        ref={section}
         id="top"
-        aria-label="Демо-сессия с Ментором"
-        className="relative flex min-h-[100svh] flex-col items-center gap-8 overflow-hidden pb-10 pt-[calc(64px+min(30vw,150px))] lg:block lg:h-[100svh] lg:min-h-[680px] lg:p-0"
+        aria-label="Диалог с Ментором"
+        className="relative flex min-h-[100svh] flex-col items-center gap-6 overflow-hidden pb-10 pt-24 lg:block lg:h-[100svh] lg:min-h-[720px] lg:p-0"
       >
-        {webgl && (
-          <SceneBoundary fallback={<RadiantMark size={96} className="absolute left-1/2 top-[90px] -translate-x-1/2 text-ivory lg:top-[12%]" />}>
-            <div className="absolute inset-0">
-              <Scene active={inView} />
-            </div>
-          </SceneBoundary>
-        )}
+        <h1 className="sr-only">Foundation — ИИ-ментор для фаундеров</h1>
+        <Backdrop />
+        <PlasmaSphere />
 
-        {webgl === false && <RadiantMark size={96} className="absolute left-1/2 top-[90px] -translate-x-1/2 text-ivory lg:top-[12%]" />}
-
-        <div className="relative lg:absolute lg:left-1/2 lg:top-[58%] lg:-translate-x-1/2 lg:-translate-y-1/2">
-          <Ring shown={shown} />
+        <div className="relative lg:absolute lg:left-1/2 lg:top-[52%] lg:-translate-x-1/2 lg:-translate-y-1/2">
+          <SphereDialog />
         </div>
         <div className="relative w-full lg:static">
-          <ToolsRail shown={shown} />
+          <Agents />
         </div>
         <div className="relative w-full lg:static">
-          <ProjectRail shown={shown} />
+          <ProjectActions />
         </div>
 
-        {(phase === "intro" || phase === "greeting") && !reduce && (
-          <button type="button" onClick={skipIntro} className="link-quiet absolute bottom-6 left-1/2 z-20 -translate-x-1/2 text-[12px] text-ivory-60">
-            Пропустить
-          </button>
-        )}
-
-        <button
-          type="button"
-          aria-label="Новый проект"
-          className="reveal group absolute bottom-6 right-[var(--gutter)] hidden size-14 place-items-center rounded-full border border-hair-strong text-ivory transition-[transform,border-color] duration-150 hover:border-sun active:scale-95 lg:grid"
-          data-shown={phase === "ready"}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden className="transition-transform duration-500 group-hover:rotate-90">
+        <button type="button" aria-label="Новый проект" title="Новый проект" className="glass-round absolute bottom-6 right-[calc(3.5%+28px)] hidden !size-14 lg:inline-flex">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
             <path d="M12 5v14M5 12h14" />
           </svg>
-          <span className="pointer-events-none absolute right-full mr-4 whitespace-nowrap text-[12px] text-ivory-60 opacity-0 transition-opacity group-hover:opacity-100">
-            Новый проект
-          </span>
         </button>
       </section>
 

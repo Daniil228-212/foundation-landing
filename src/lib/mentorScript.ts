@@ -81,7 +81,7 @@ const Q: Record<IdeaType, { payer: string; barriers: string; economics: string }
   },
 };
 
-export const OPENING = "Привет. Прежде чем говорить об идее, познакомимся. Как вас зовут?";
+export const OPENING = "Привет! Как вас зовут?";
 
 export type Level = "novice" | "practitioner" | "expert";
 export type Profile = { name?: string; background?: string; launches?: string; level?: Level; current?: string };

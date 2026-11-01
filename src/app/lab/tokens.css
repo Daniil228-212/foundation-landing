@@ -1,0 +1,194 @@
+/* ------------------------------------------------------------------
+   Foundation · дизайн-система v2 (кандидаты)
+   Два направления палитры × три пары шрифтов. После выбора остаётся
+   один набор, и он заменяет токены в globals.css.
+------------------------------------------------------------------- */
+
+/* ===== Направление «Лёд»: стеклянный кристалл, тёплое ядро, неоновые линзы ===== */
+.ds[data-direction="ice"] {
+  --bg-0: #03050b;          /* глубокий космос */
+  --bg-1: #0a1020;          /* поверхность */
+  --bg-2: #121a30;          /* приподнятая */
+  --line: rgba(143, 233, 255, 0.14);
+  --line-strong: rgba(143, 233, 255, 0.3);
+  --text: #eaf4ff;
+  --text-2: rgba(234, 244, 255, 0.7);
+  --text-3: rgba(234, 244, 255, 0.5);
+  --core: #ffe3a3;          /* ядро радианта, главный CTA */
+  --core-hot: #fff4da;
+  --core-ink: #1b1305;
+  --glass: #8fe9ff;         /* грани кристалла */
+  --accent-1: #ff7ad9;
+  --accent-2: #a48cff;
+  --accent-3: #5cf2c2;
+  --nx-market: #8fe9ff;
+  --nx-product: #a48cff;
+  --nx-growth: #ff7ad9;
+  --nx-ops: #5cf2c2;
+  --nx-tech: #ffb86b;
+  --glow-core: 0 0 24px rgba(255, 227, 163, 0.5), 0 0 90px rgba(255, 227, 163, 0.2);
+  --glow-glass: 0 0 18px rgba(143, 233, 255, 0.35);
+  --space-tint: radial-gradient(60% 55% at 50% 45%, rgba(143, 233, 255, 0.08), transparent 70%),
+    radial-gradient(40% 40% at 50% 48%, rgba(255, 227, 163, 0.1), transparent 70%);
+}
+
+/* ===== Направление «Золото»: чёрная пустота, золотые лучи-потоки, белые сферы ===== */
+.ds[data-direction="gold"] {
+  --bg-0: #000000;
+  --bg-1: #0b0b0c;
+  --bg-2: #161618;
+  --line: rgba(255, 200, 97, 0.14);
+  --line-strong: rgba(255, 200, 97, 0.3);
+  --text: #f3f0ea;
+  --text-2: rgba(243, 240, 234, 0.7);
+  --text-3: rgba(243, 240, 234, 0.5);
+  --core: #ffc861;
+  --core-hot: #ffe9b8;
+  --core-ink: #1a1203;
+  --glass: #e9e6df;
+  --accent-1: #3e7bff;
+  --accent-2: #e8665a;
+  --accent-3: #ff9f2e;
+  --nx-market: #ffc861;
+  --nx-product: #e9e6df;
+  --nx-growth: #ff9f2e;
+  --nx-ops: #6f9bff;
+  --nx-tech: #e8665a;
+  --glow-core: 0 0 22px rgba(255, 200, 97, 0.55), 0 0 90px rgba(255, 200, 97, 0.22);
+  --glow-glass: 0 0 18px rgba(233, 230, 223, 0.25);
+  --space-tint: radial-gradient(55% 50% at 50% 45%, rgba(255, 200, 97, 0.08), transparent 70%);
+}
+
+/* ===== Пары шрифтов ===== */
+.ds[data-type="cosmos"] {
+  --font-display: var(--f-unbounded), "Arial Black", sans-serif;
+  --font-text: var(--f-golos), system-ui, sans-serif;
+  --display-weight: 300;
+  --display-strong: 500;
+  --display-tracking: -0.03em;
+}
+.ds[data-type="instrument"] {
+  --font-display: var(--f-tektur), "Arial Narrow", sans-serif;
+  --font-text: var(--f-intertight), system-ui, sans-serif;
+  --display-weight: 500;
+  --display-strong: 700;
+  --display-tracking: -0.01em;
+}
+.ds[data-type="monolith"] {
+  --font-display: var(--f-geologica), system-ui, sans-serif;
+  --font-text: var(--f-geologica), system-ui, sans-serif;
+  --display-weight: 200;
+  --display-strong: 600;
+  --display-tracking: -0.04em;
+}
+
+/* ===== Общие токены (не зависят от направления) ===== */
+.ds {
+  /* шкала: 12 · 14 · 16 · 18 · 24 · 32 · 44 · 64 · 96–128 */
+  --fs-micro: 12px;
+  --fs-small: 14px;
+  --fs-body: 16px;
+  --fs-body-l: 18px;
+  --fs-h3: 24px;
+  --fs-h2: clamp(28px, 3.2vw, 44px);
+  --fs-display-l: clamp(36px, 5vw, 64px);
+  --fs-display-xl: clamp(40px, 5.6vw, 92px);
+  --lh-tight: 1.02;
+  --lh-text: 1.55;
+
+  /* радиусы по иерархии: мелкое — малый радиус, крупные поверхности — большой */
+  --r-xs: 6px;
+  --r-s: 10px;
+  --r-m: 16px;
+  --r-l: 28px;
+  --r-pill: 999px;
+
+  --shadow-raise: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 60px -24px rgba(0, 0, 0, 0.85);
+
+  /* движение: отклик быстро, сцена медленно */
+  --dur-press: 120ms;
+  --dur-hover: 180ms;
+  --dur-ui: 240ms;
+  --dur-panel: 420ms;
+  --dur-scene: 1200ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-scene: cubic-bezier(0.16, 1, 0.3, 1);
+
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: var(--font-text);
+  font-weight: 400;
+  transition: background-color var(--dur-panel) var(--ease-out), color var(--dur-panel) var(--ease-out);
+}
+
+.ds .display {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: var(--lh-tight);
+  text-wrap: balance;
+}
+.ds .display strong {
+  font-weight: var(--display-strong);
+}
+
+/* кнопки-эталоны (полный набор состояний — элемент 3) */
+.ds .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+.ds .btn:active {
+  transform: scale(0.97);
+}
+.ds .btn-core {
+  background: var(--core);
+  color: var(--core-ink);
+}
+.ds .btn-glass {
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: color-mix(in oklab, var(--bg-2) 60%, transparent);
+  backdrop-filter: blur(14px);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ds .btn-core:hover {
+    box-shadow: var(--glow-core);
+  }
+  .ds .btn-glass:hover {
+    border-color: var(--glass);
+    box-shadow: var(--glow-glass);
+  }
+}
+.ds .btn:focus-visible {
+  outline: 2px solid var(--glass);
+  outline-offset: 3px;
+}
+
+.ds .card {
+  border-radius: var(--r-l);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg-1) 80%, transparent);
+  box-shadow: var(--shadow-raise);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds,
+  .ds * {
+    transition-duration: 1ms !important;
+    animation: none !important;
+  }
+}

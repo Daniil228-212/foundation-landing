@@ -4,19 +4,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PAF_NEXUSES, PAF_NODES, type PafNexusId } from "@/content/pafNexus";
 
 /* ------------------------------------------------------------------
-   Радиант-Кортекс: геодезическая сфера, обволакивающая тёплое ядро.
-   Её точки — узлы Нексусов PAF. Крупнее узел — крупнее точка и виднее
-   подпись; мелкие узлы и подписи проявляются при приближении.
+   Радиант-Кортекс: геодезическая сфера вокруг тёплого ядра. Её точки —
+   узлы Нексусов PAF. Крупнее узел — крупнее точка и виднее подпись;
+   мелкие узлы и подписи проявляются при приближении.
+   Вращение свободное (трекбол на кватернионах) — без «полюсов».
 ------------------------------------------------------------------- */
 
+export type RadiantFact = { pafId: string; label: string; status: "assume" | "check" | "ok" | "fail" };
+export type RadiantSelection = { id: string; label: string; nexus: PafNexusId; path: string[]; facts: RadiantFact[] } | null;
+
 type V3 = [number, number, number];
+type Q = [number, number, number, number]; // x, y, z, w
 type Node = {
   id: string;
   label: string;
   nexus: PafNexusId | null; // null — «пыль» кристалла
   parent: string | null;
   level: number; // 0 — Нексус, 1.. — глубина, -1 — пыль
-  desc: number;
   r: number; // базовый радиус точки, px при масштабе 1
   pos: V3;
   phase: number;
@@ -27,11 +31,13 @@ const GLASS = "#8fe9ff";
 const CORE = "#ffe3a3";
 const CORE_HOT = "#fff4da";
 const LINK = "#ffd27a";
-const COLOR: Record<PafNexusId, string> = Object.fromEntries(PAF_NEXUSES.map((n) => [n.id, n.color])) as Record<PafNexusId, string>;
-const ZOOM_MIN = 1;
+const STATUS: Record<RadiantFact["status"], string> = { assume: "#8d93a8", check: "#ffd54f", ok: "#7ee0a1", fail: "#ff7a7a" };
+const COLOR = Object.fromEntries(PAF_NEXUSES.map((n) => [n.id, n.color])) as Record<PafNexusId, string>;
+const ZOOM_MIN = 0.85;
 const ZOOM_MAX = 4;
+const ZOOM_FOCUS_MAX = 2.2;
 
-/* ---------- векторная мелочь ---------- */
+/* ---------- векторы и кватернионы ---------- */
 const norm = (v: V3): V3 => {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
@@ -39,8 +45,39 @@ const norm = (v: V3): V3 => {
 const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const qAxis = (axis: V3, ang: number): Q => {
+  const s = Math.sin(ang / 2);
+  return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(ang / 2)];
+};
+const qMul = (a: Q, b: Q): Q => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+  a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+  a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+];
+const qNorm = (q: Q): Q => {
+  const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+  return [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
+};
+const qRot = (q: Q, v: V3): V3 => {
+  const u: V3 = [q[0], q[1], q[2]];
+  const t = cross(u, v).map((x) => x * 2) as V3;
+  const c = cross(u, t);
+  return [v[0] + q[3] * t[0] + c[0], v[1] + q[3] * t[1] + c[1], v[2] + q[3] * t[2] + c[2]];
+};
+const qFromTo = (a: V3, b: V3): Q => {
+  const d = dot(a, b);
+  if (d > 0.99999) return [0, 0, 0, 1];
+  if (d < -0.99999) return qAxis([0, 1, 0], Math.PI);
+  const c = cross(a, b);
+  return qNorm([c[0], c[1], c[2], 1 + d]);
+};
+const qLerp = (a: Q, b: Q, t: number): Q => {
+  const s = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1;
+  return qNorm([a[0] + (b[0] * s - a[0]) * t, a[1] + (b[1] * s - a[1]) * t, a[2] + (b[2] * s - a[2]) * t, a[3] + (b[3] * s - a[3]) * t]);
+};
 
-/** точка на сфере на угловом расстоянии d от p в направлении угла a в касательной плоскости */
+/** точка на сфере на угловом расстоянии d от p в направлении угла a */
 function around(p: V3, d: number, a: number): V3 {
   const up: V3 = Math.abs(p[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
   const t1 = norm(cross(p, up));
@@ -53,7 +90,6 @@ function around(p: V3, d: number, a: number): V3 {
     p[2] * c + (t1[2] * Math.cos(a) + t2[2] * Math.sin(a)) * s,
   ]);
 }
-/** угол направления q относительно p в касательной плоскости p */
 function angleTo(p: V3, q: V3): number {
   const up: V3 = Math.abs(p[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
   const t1 = norm(cross(p, up));
@@ -78,7 +114,10 @@ function buildGraph() {
     return p ? 1 + level(p) : 0;
   };
 
-  const nodes: Node[] = [];
+  // детерминированная «случайность» — одинаковая картинка при каждой загрузке
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+
   const pos = new Map<string, V3>();
   const STEP = [0, 0.6, 0.27, 0.17, 0.13];
   const place = (id: string) => {
@@ -87,7 +126,6 @@ function buildGraph() {
     if (lv === 0) pos.set(id, HUB_DIR[n.nexus]);
     const children = kids.get(id) ?? [];
     const p = pos.get(id)!;
-    // направление «наружу» от прародителя, чтобы ветви не загибались назад
     const gp = n.parent ? pos.get(n.parent)! : null;
     const outward = gp ? angleTo(p, gp) + Math.PI : 0.4;
     children.forEach((c, i) => {
@@ -99,14 +137,13 @@ function buildGraph() {
   };
   PAF_NEXUSES.forEach((h) => place(h.id));
 
-  PAF_NODES.forEach((n) => {
+  const nodes: Node[] = PAF_NODES.map((n) => {
     const lv = level(n.id);
     const d = descCount(n.id);
     const r = lv === 0 ? 9 : lv === 1 ? Math.min(6.4, 3.4 + d * 0.5) : lv === 2 ? Math.min(4.2, 2.5 + d * 0.45) : 1.9;
-    nodes.push({ id: n.id, label: n.label, nexus: n.nexus, parent: n.parent, level: lv, desc: d, r, pos: pos.get(n.id)!, phase: Math.random() * 6.28, color: COLOR[n.nexus] });
+    return { id: n.id, label: n.label, nexus: n.nexus, parent: n.parent, level: lv, r, pos: pos.get(n.id)!, phase: rnd() * 6.28, color: COLOR[n.nexus] };
   });
 
-  // расталкивание по поверхности, чтобы точки не слипались
   for (let it = 0; it < 80; it++) {
     for (let i = 0; i < nodes.length; i++)
       for (let j = i + 1; j < nodes.length; j++) {
@@ -125,7 +162,6 @@ function buildGraph() {
       }
   }
 
-  // «пыль» кристалла — заполняет пустоты, сохраняя геодезический силуэт
   const N = 120;
   for (let i = 0; i < N; i++) {
     const y = 1 - (i / (N - 1)) * 2;
@@ -133,10 +169,9 @@ function buildGraph() {
     const t = i * Math.PI * (3 - Math.sqrt(5));
     const p: V3 = [Math.cos(t) * rr, y, Math.sin(t) * rr];
     if (nodes.some((n) => n.level >= 0 && dot(n.pos, p) > Math.cos(0.13))) continue;
-    nodes.push({ id: `dust-${i}`, label: "", nexus: null, parent: null, level: -1, desc: 0, r: 1.1, pos: p, phase: Math.random() * 6.28, color: GLASS });
+    nodes.push({ id: `dust-${i}`, label: "", nexus: null, parent: null, level: -1, r: 1.1, pos: p, phase: rnd() * 6.28, color: GLASS });
   }
 
-  // рёбра: дерево Нексуса + каркас кристалла (3 ближайших) + связи между Нексусами
   const idx = new Map(nodes.map((n, i) => [n.id, i]));
   const tree: [number, number][] = [];
   nodes.forEach((n, i) => n.parent && tree.push([idx.get(n.parent)!, i]));
@@ -158,95 +193,126 @@ function buildGraph() {
         }
       });
   });
-  const cross_: [number, number][] = [];
-  PAF_NODES.forEach((n) => n.links?.forEach((l) => idx.has(l) && cross_.push([idx.get(n.id)!, idx.get(l)!])));
+  const crossLinks: [number, number][] = [];
+  PAF_NODES.forEach((n) => n.links?.forEach((l) => idx.has(l) && crossLinks.push([idx.get(n.id)!, idx.get(l)!])));
 
-  return { nodes, tree, mesh, cross: cross_, idx };
+  const children = new Map<number, number[]>();
+  tree.forEach(([p, c]) => children.set(p, [...(children.get(p) ?? []), c]));
+  const subtree = (i: number): number[] => (children.get(i) ?? []).flatMap((c) => [c, ...subtree(c)]);
+
+  return { nodes, tree, mesh, crossLinks, idx, children, subtree };
 }
 
 /* ---------- компонент ---------- */
-export function NexusRadiant() {
+export function NexusRadiant({
+  facts = [],
+  onSelect,
+  focusRequest,
+  showHint = true,
+}: {
+  facts?: RadiantFact[];
+  onSelect?: (s: RadiantSelection) => void;
+  /** внешний запрос фокуса: меняйте `n`, чтобы повторить */
+  focusRequest?: { id: string | null; n: number };
+  showHint?: boolean;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const graph = useMemo(buildGraph, []);
-  const [focusId, setFocusId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
-  const [zoomed, setZoomed] = useState(false);
+  const [changed, setChanged] = useState(false);
+  const [announce, setAnnounce] = useState("");
+  const factsRef = useRef(facts);
+  factsRef.current = facts;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
   const ctrl = useRef({
-    rotY: 0.5,
-    rotX: 0.18,
-    vY: 0,
-    vX: 0,
+    q: qMul(qAxis([1, 0, 0], 0.18), qAxis([0, 1, 0], 0.5)),
+    spinAxis: [0, 1, 0] as V3,
+    spin: 0, // рад/кадр после отпускания
     zoom: 1,
-    target: null as null | { rotY: number; rotX: number; zoom: number },
+    target: null as null | { q: Q; zoom: number },
     hover: -1,
     focus: -1,
-    panX: 0,
-    panY: 0,
     dragging: false,
     idleAt: 0,
   });
 
-  const nodePath = (i: number) => {
+  const pathOf = (i: number) => {
     const out: string[] = [];
-    let n = graph.nodes[i];
+    let n: Node | undefined = graph.nodes[i];
     while (n) {
       out.unshift(n.label);
-      n = n.parent ? graph.nodes[graph.idx.get(n.parent)!] : (undefined as unknown as Node);
+      n = n.parent ? graph.nodes[graph.idx.get(n.parent)!] : undefined;
     }
-    return out.join(" → ");
+    return out;
   };
 
   const focusNode = (id: string | null) => {
     const c = ctrl.current;
-    setFocusId(id);
+    setChanged(true);
     if (!id) {
       c.focus = -1;
-      c.target = { rotY: c.rotY, rotX: 0.18, zoom: 1 };
+      c.target = { q: c.q, zoom: 1 };
+      setAnnounce("");
+      onSelectRef.current?.(null);
       return;
     }
-    const i = graph.idx.get(id)!;
+    const i = graph.idx.get(id);
+    if (i === undefined) return;
     const n = graph.nodes[i];
-    const [x, y, z] = n.pos;
-    let ry = Math.atan2(-x, z);
-    // кратчайший поворот
-    while (ry - c.rotY > Math.PI) ry -= Math.PI * 2;
-    while (ry - c.rotY < -Math.PI) ry += Math.PI * 2;
-    const rx = Math.atan2(y, Math.hypot(x, z));
-    // поворот со сдвигом: узел не перекрывает ядро, панорама поставит его в центр
-    ry += 0.55;
+    // поворот кратчайшим путём: узел — к зрителю
+    const delta = qFromTo(norm(qRot(c.q, n.pos)), [0, 0, 1]);
+    // масштаб — чтобы вся ветка узла помещалась в кадр
+    const sub = graph.subtree(i);
+    const spread = sub.reduce((m, k) => Math.max(m, Math.acos(clamp(dot(n.pos, graph.nodes[k].pos), -1, 1))), 0.22);
+    const zoom = clamp(0.36 / (0.36 * Math.sin(Math.min(spread, 1.35)) * 1.35), 1, ZOOM_FOCUS_MAX);
     c.focus = i;
-    c.target = { rotY: ry, rotX: rx, zoom: [1.9, 2.6, 3.3, 3.8][Math.min(n.level, 3)] };
+    c.spin = 0;
+    c.target = { q: qMul(delta, c.q), zoom };
+    const path = pathOf(i);
+    setAnnounce(path.join(" → "));
+    onSelectRef.current?.({ id: n.id, label: n.label, nexus: n.nexus!, path, facts: factsRef.current.filter((f) => f.pafId === n.id) });
   };
+
+  useEffect(() => {
+    if (focusRequest) focusNode(focusRequest.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.n]);
 
   useEffect(() => {
     const cv = canvas.current!;
     const ctx = cv.getContext("2d")!;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const c = ctrl.current;
-    const { nodes, tree, mesh, cross: crossLinks } = graph;
+    const { nodes, tree, mesh, crossLinks, children, subtree } = graph;
     const proj = nodes.map(() => ({ x: 0, y: 0, z: 0, s: 1 }));
-    const children = new Map<number, number[]>();
-    tree.forEach(([p, ch]) => children.set(p, [...(children.get(p) ?? []), ch]));
+    const labelBoxes: { i: number; box: [number, number, number, number] }[] = [];
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     let raf = 0;
     let last = performance.now();
-    const fontText = getComputedStyle(cv).getPropertyValue("--font-label").trim() || "system-ui, sans-serif";
+    const fontLabel = getComputedStyle(cv).getPropertyValue("--font-label").trim() || "system-ui, sans-serif";
 
-    const highlightSet = (i: number) => {
-      const s = new Set<number>([i]);
+    const ancestors = (i: number) => {
+      const out: number[] = [];
       let n = nodes[i];
       while (n?.parent) {
         const p = graph.idx.get(n.parent)!;
-        s.add(p);
+        out.push(p);
         n = nodes[p];
       }
-      (children.get(i) ?? []).forEach((k) => s.add(k));
+      return out;
+    };
+    const withLinks = (s: Set<number>) => {
       crossLinks.forEach(([a, b]) => {
-        if (a === i) s.add(b);
-        if (b === i) s.add(a);
+        if (s.has(a)) s.add(b);
+        else if (s.has(b)) s.add(a);
       });
       return s;
     };
+    // фокус: вся ветка + путь до Нексуса; наведение: путь + прямые потомки
+    const focusSet = (i: number) => withLinks(new Set([i, ...ancestors(i), ...subtree(i)]));
+    const hoverSet = (i: number) => withLinks(new Set([i, ...ancestors(i), ...(children.get(i) ?? [])]));
 
     const frame = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -260,71 +326,52 @@ export function NexusRadiant() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      // ---- движение камеры ----
+      // ---- камера ----
       if (c.target) {
-        const k = reduce ? 1 : 1 - Math.exp(-dt * 4.5);
-        c.rotY += (c.target.rotY - c.rotY) * k;
-        c.rotX += (c.target.rotX - c.rotX) * k;
+        const k = reduce ? 1 : 1 - Math.exp(-dt * 4);
+        c.q = qLerp(c.q, c.target.q, k);
         c.zoom += (c.target.zoom - c.zoom) * k;
-        if (Math.abs(c.target.zoom - c.zoom) < 0.002 && Math.abs(c.target.rotY - c.rotY) < 0.002) c.target = null;
+        const qd = Math.abs(c.q[0] * c.target.q[0] + c.q[1] * c.target.q[1] + c.q[2] * c.target.q[2] + c.q[3] * c.target.q[3]);
+        if (Math.abs(c.target.zoom - c.zoom) < 0.002 && qd > 0.99999) c.target = null;
       } else if (!c.dragging) {
-        c.rotY += c.vY;
-        c.rotX = clamp(c.rotX + c.vX, -1.25, 1.25);
-        c.vY *= 0.94;
-        c.vX *= 0.94;
-        const idle = now - c.idleAt > 2500;
-        if (!reduce && idle && c.focus < 0) c.rotY += dt * 0.07;
+        if (Math.abs(c.spin) > 1e-5) {
+          c.q = qNorm(qMul(qAxis(c.spinAxis, c.spin), c.q));
+          c.spin *= 0.92;
+        }
+        // спокойное вращение вокруг вертикали, пока никто не трогает и ничего не выбрано
+        if (!reduce && now - c.idleAt > 2500 && c.focus < 0) c.q = qNorm(qMul(qAxis([0, 1, 0], dt * 0.07), c.q));
       }
 
       const cx = w / 2;
       const cy = h / 2;
       const R = Math.min(w, h) * (w < h ? 0.44 : 0.36) * c.zoom;
       const D = 3.4;
-      const sy = Math.sin(c.rotY);
-      const cyR = Math.cos(c.rotY);
-      const sx = Math.sin(c.rotX);
-      const cxR = Math.cos(c.rotX);
       const t = now / 1000;
 
       nodes.forEach((n, i) => {
         const breathe = reduce ? 1 : 1 + Math.sin(t * 1.1 + n.phase) * 0.01 + Math.sin(t * 0.7) * 0.006;
-        const [x, y, z] = n.pos;
-        const x1 = x * cyR + z * sy;
-        const z1 = -x * sy + z * cyR;
-        const y2 = y * cxR - z1 * sx;
-        const z2 = y * sx + z1 * cxR;
-        const s = D / (D - z2 * breathe);
-        proj[i].x = cx + x1 * breathe * R * s;
-        proj[i].y = cy - y2 * breathe * R * s;
-        proj[i].z = z2;
+        const [x, y, z] = qRot(c.q, n.pos);
+        const s = D / (D - z * breathe);
+        proj[i].x = cx + x * breathe * R * s;
+        proj[i].y = cy - y * breathe * R * s;
+        proj[i].z = z;
         proj[i].s = s;
       });
 
-      // панорама: выбранный узел плавно встаёт в центр экрана
-      {
-        const k = reduce ? 1 : 1 - Math.exp(-dt * 4.5);
-        const tx = c.focus >= 0 ? cx - proj[c.focus].x : 0;
-        const ty = c.focus >= 0 ? cy - proj[c.focus].y : 0;
-        c.panX += (tx - c.panX) * k;
-        c.panY += (ty - c.panY) * k;
-        for (const p of proj) {
-          p.x += c.panX;
-          p.y += c.panY;
-        }
-      }
-      const ox = cx + c.panX;
-      const oy = cy + c.panY;
-
-      const focusIdx = c.hover >= 0 ? c.hover : c.focus;
-      const hl = focusIdx >= 0 ? highlightSet(focusIdx) : null;
+      const focused = c.focus >= 0;
+      const hl = focused ? focusSet(c.focus) : c.hover >= 0 ? hoverSet(c.hover) : null;
+      const hovered = !focused && c.hover >= 0 ? c.hover : -1;
       const depth = (z: number) => 0.18 + ((z + 1) / 2) * 0.82;
+      const factBy = new Map<string, RadiantFact[]>();
+      factsRef.current.forEach((f) => factBy.set(f.pafId, [...(factBy.get(f.pafId) ?? []), f]));
 
       const drawEdges = (front: boolean) => {
         ctx.lineCap = "round";
+        // каркас кристалла: при выборе узла уходит в фон, чтобы не путать
         for (const [a, b] of mesh) {
           const z = (proj[a].z + proj[b].z) / 2;
           if (z >= 0 !== front) continue;
-          ctx.globalAlpha = depth(z) * 0.32 * (hl ? 0.35 : 1);
+          ctx.globalAlpha = depth(z) * 0.32 * (focused ? 0.06 : hl ? 0.35 : 1);
           ctx.strokeStyle = GLASS;
           ctx.lineWidth = 0.5 + depth(z) * 0.5;
           ctx.beginPath();
@@ -336,9 +383,10 @@ export function NexusRadiant() {
           const z = (proj[a].z + proj[b].z) / 2;
           if (z >= 0 !== front) continue;
           const on = !hl || (hl.has(a) && hl.has(b));
-          ctx.globalAlpha = depth(z) * (on ? (hl ? 0.95 : 0.55) : 0.12);
+          if (focused && !on) continue;
+          ctx.globalAlpha = (focused ? Math.max(0.45, depth(z)) : depth(z)) * (on ? (hl ? 0.95 : 0.55) : 0.1);
           ctx.strokeStyle = nodes[b].color;
-          ctx.lineWidth = (nodes[a].level === 0 ? 1.4 : 1) * (0.6 + depth(z) * 0.6);
+          ctx.lineWidth = (nodes[a].level === 0 ? 1.5 : 1.1) * (0.6 + depth(z) * 0.6);
           ctx.beginPath();
           ctx.moveTo(proj[a].x, proj[a].y);
           ctx.lineTo(proj[b].x, proj[b].y);
@@ -353,7 +401,7 @@ export function NexusRadiant() {
           const on = !hl || hl.has(i);
           const tw = reduce ? 1 : 0.85 + Math.sin(t * 2 + n.phase * 3) * 0.15;
           const rad = n.r * Math.min(c.zoom, 2.4) ** 0.55 * p.s * (n.level < 0 ? 1 : tw * 0.15 + 0.85);
-          const a = depth(p.z) * (on ? 1 : 0.22);
+          const a = (focused && on ? Math.max(0.55, depth(p.z)) : depth(p.z)) * (on ? 1 : focused ? 0.1 : 0.22);
           if (n.level >= 0 && n.level <= 1) {
             const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad * 4.5);
             g.addColorStop(0, n.color);
@@ -377,7 +425,18 @@ export function NexusRadiant() {
             ctx.arc(p.x, p.y, rad + 3.5, 0, Math.PI * 2);
             ctx.stroke();
           }
-          if (i === c.focus) {
+          // факты из диалога: кольцо цвета статуса
+          const f = factBy.get(n.id);
+          if (f?.length) {
+            // у погашенных при выборе узлов кольцо тоже гаснет
+            ctx.globalAlpha = focused && !on ? a : Math.max(a, 0.6);
+            ctx.strokeStyle = STATUS[f[f.length - 1].status];
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, rad + (n.level === 0 ? 8 : 4), 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (i === c.focus || i === hovered) {
             ctx.globalAlpha = 1;
             ctx.strokeStyle = CORE;
             ctx.lineWidth = 1.5;
@@ -388,27 +447,25 @@ export function NexusRadiant() {
         });
       };
 
-      // задняя половина → ядро → передняя половина
       drawEdges(false);
       drawPoints(false);
 
       const pulse = reduce ? 1 : 1 + Math.sin(t * 1.6) * 0.05;
-      const core = ctx.createRadialGradient(ox, oy, 0, ox, oy, R * 0.78 * pulse);
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.78 * pulse);
       core.addColorStop(0, CORE_HOT);
       core.addColorStop(0.16, CORE);
       core.addColorStop(0.42, "rgba(255,227,163,0.22)");
       core.addColorStop(1, "rgba(255,227,163,0)");
-      // при приближении ядро приглушается, чтобы не засвечивать узлы
-      ctx.globalAlpha = (hl ? 0.7 : 1) / c.zoom ** 0.9;
+      // при выборе и приближении ядро приглушается, чтобы не засвечивать узлы
+      ctx.globalAlpha = (focused ? 0.28 : hl ? 0.7 : 1) / c.zoom ** 0.9;
       ctx.fillStyle = core;
       ctx.beginPath();
-      ctx.arc(ox, oy, R * 0.78 * pulse, 0, Math.PI * 2);
+      ctx.arc(cx, cy, R * 0.78 * pulse, 0, Math.PI * 2);
       ctx.fill();
 
       drawEdges(true);
       drawPoints(true);
 
-      // связи между Нексусами — только для выделенного узла
       if (hl) {
         ctx.setLineDash([3, 5]);
         for (const [a, b] of crossLinks) {
@@ -424,34 +481,39 @@ export function NexusRadiant() {
         ctx.setLineDash([]);
       }
 
-      // ---- подписи: видимость = размер × масштаб × «лицом к зрителю», без наложений ----
+      // ---- подписи ----
+      labelBoxes.length = 0;
       const placed: [number, number, number, number][] = [];
       const order = nodes
         .map((n, i) => ({ n, i }))
         .filter(({ n }) => n.level >= 0)
-        .sort((a, b) => (hl ? Number(hl.has(b.i)) - Number(hl.has(a.i)) : 0) || b.n.r - a.n.r);
+        .sort((a, b) => Number(b.i === c.focus || b.i === hovered) - Number(a.i === c.focus || a.i === hovered) || (hl ? Number(hl.has(b.i)) - Number(hl.has(a.i)) : 0) || b.n.r - a.n.r);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       for (const { n, i } of order) {
         const p = proj[i];
-        const forced = hl?.has(i) ?? false;
+        const inSet = hl?.has(i) ?? false;
+        const hasFact = factBy.has(n.id);
         let alpha = n.level === 0 ? 1 : clamp((c.zoom * n.r - 3.6) / 5);
+        if (hasFact) alpha = Math.max(alpha, 0.75);
         alpha *= clamp((p.z + 0.2) / 0.55);
-        if (forced) alpha = Math.max(alpha, p.z > -0.35 ? 1 : 0.5);
-        else if (hl) alpha *= 0.3;
+        if (inSet) alpha = Math.max(alpha, p.z > -0.35 ? 1 : 0.45);
+        else if (hl) alpha *= focused ? 0.08 : 0.3;
         if (alpha < 0.04) continue;
-        const size = n.level === 0 ? 17 : n.level === 1 ? 13 : 11.5;
-        ctx.font = `${n.level === 0 ? 500 : 400} ${size}px ${fontText}`;
+        const size = n.level === 0 ? 16 : n.level === 1 ? 12.5 : 11;
+        ctx.font = `400 ${size}px ${fontLabel}`;
         const tw = ctx.measureText(n.label).width;
         const rad = n.r * Math.min(c.zoom, 2.4) ** 0.55 * p.s;
         const ly = p.y + (n.level === 0 ? rad + 18 : -(rad + 10));
         const lx = clamp(p.x, tw / 2 + 10, w - tw / 2 - 10);
         const box: [number, number, number, number] = [lx - tw / 2 - 4, ly - size / 2 - 2, lx + tw / 2 + 4, ly + size / 2 + 2];
-        if (!forced && placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+        const mustShow = i === c.focus || i === hovered;
+        if (!mustShow && placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
         placed.push(box);
+        if (alpha > 0.35 && p.z > -0.2) labelBoxes.push({ i, box });
         ctx.globalAlpha = alpha;
         ctx.lineWidth = 4;
-        ctx.strokeStyle = "rgba(3,5,11,0.85)";
+        ctx.strokeStyle = "rgba(3,5,11,0.88)";
         ctx.strokeText(n.label, lx, ly);
         ctx.fillStyle = n.level === 0 ? n.color : "#eaf4ff";
         ctx.fillText(n.label, lx, ly);
@@ -466,18 +528,25 @@ export function NexusRadiant() {
     let start = { x: 0, y: 0, moved: false };
     let pinch0 = 0;
     let zoom0 = 1;
+    let lastTap = 0;
+    // щедрое попадание: точка, её окрестность или подпись
     const hit = (x: number, y: number) => {
       const r = cv.getBoundingClientRect();
       const px = x - r.left;
       const py = y - r.top;
+      for (let k = labelBoxes.length - 1; k >= 0; k--) {
+        const b = labelBoxes[k].box;
+        if (px >= b[0] && px <= b[2] && py >= b[1] && py <= b[3]) return labelBoxes[k].i;
+      }
       let best = -1;
       let bd = 1e9;
       nodes.forEach((n, i) => {
-        if (n.level < 0 || proj[i].z < -0.25) return;
+        if (n.level < 0 || proj[i].z < -0.1) return;
         const d = Math.hypot(proj[i].x - px, proj[i].y - py);
-        const lim = n.r * 1.6 + 9;
-        if (d < lim && d - proj[i].z * 4 < bd) {
-          bd = d - proj[i].z * 4;
+        const lim = Math.max(18, n.r * 2.2 + 10);
+        const score = d - n.r * 1.5 - proj[i].z * 6;
+        if (d < lim && score < bd) {
+          bd = score;
           best = i;
         }
       });
@@ -488,7 +557,7 @@ export function NexusRadiant() {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       start = { x: e.clientX, y: e.clientY, moved: false };
       c.dragging = true;
-      c.target = null;
+      c.spin = 0;
       c.idleAt = performance.now();
       setTouched(true);
       if (pointers.size === 2) {
@@ -508,19 +577,28 @@ export function NexusRadiant() {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
+        c.target = null;
         c.zoom = clamp((zoom0 * Math.hypot(a.x - b.x, a.y - b.y)) / pinch0, ZOOM_MIN, ZOOM_MAX);
         start.moved = true;
+        setChanged(true);
         return;
       }
       const dx = e.clientX - prev.x;
       const dy = e.clientY - prev.y;
-      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5) start.moved = true;
-      const k = 0.006 / Math.sqrt(c.zoom);
-      c.vY = dx * k;
-      c.vX = dy * k;
-      c.rotY += c.vY;
-      c.rotX = clamp(c.rotX + c.vX, -1.25, 1.25);
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) start.moved = true;
+      if (!start.moved) return;
+      c.target = c.target ? { q: c.q, zoom: c.target.zoom } : null;
+      // трекбол: ось перпендикулярна движению; при приближении вращение медленнее
+      const len = Math.hypot(dx, dy);
+      if (len > 0) {
+        const axis = norm([dy, dx, 0]);
+        const ang = (len * 0.0055) / c.zoom ** 1.15;
+        c.q = qNorm(qMul(qAxis(axis, ang), c.q));
+        c.spinAxis = axis;
+        c.spin = ang;
+      }
       cv.style.cursor = "grabbing";
+      setChanged(true);
     };
     const up = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
@@ -528,24 +606,26 @@ export function NexusRadiant() {
       c.dragging = false;
       c.idleAt = performance.now();
       if (!start.moved) {
+        c.spin = 0;
         const i = hit(e.clientX, e.clientY);
-        c.vX = c.vY = 0;
+        const now = performance.now();
         if (i >= 0) focusNode(nodes[i].id);
-        else focusNode(null);
+        else if (now - lastTap < 320) focusNode(null); // двойной клик по пустому месту — исходный вид
+        lastTap = now;
       }
       if (e.pointerType !== "mouse") c.hover = -1;
-      setZoomed(c.zoom > 1.05);
     };
     const leave = () => {
       if (!c.dragging) c.hover = -1;
     };
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
-      c.target = null;
-      c.zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.0012), ZOOM_MIN, ZOOM_MAX);
+      if (c.target) c.target = { q: c.target.q, zoom: c.zoom };
+      c.zoom = clamp(c.zoom * Math.exp(-e.deltaY * 0.001), ZOOM_MIN, ZOOM_MAX);
+      if (c.target) c.target.zoom = c.zoom;
       c.idleAt = performance.now();
       setTouched(true);
-      setZoomed(c.zoom > 1.05);
+      setChanged(true);
     };
     const key = (e: KeyboardEvent) => e.key === "Escape" && focusNode(null);
     cv.addEventListener("pointerdown", down);
@@ -568,8 +648,6 @@ export function NexusRadiant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  const focused = focusId ? graph.idx.get(focusId) : undefined;
-
   return (
     <div className="relative h-full w-full">
       <canvas
@@ -580,7 +658,7 @@ export function NexusRadiant() {
         aria-label="Радиант: четыре Нексуса — рынка, продукта, роста и компании — и их узлы на поверхности кристалла"
       />
 
-      {/* клавиатура и скринридеры: те же узлы списком; фокус подсвечивает узел на сфере */}
+      {/* клавиатура и скринридеры: те же узлы списком; фокус выбирает узел на сфере */}
       <nav aria-label="Узлы Нексусов" className="sr-only">
         {PAF_NEXUSES.map((nx) => (
           <ul key={nx.id} aria-label={nx.full}>
@@ -595,17 +673,18 @@ export function NexusRadiant() {
         ))}
       </nav>
       <p className="sr-only" aria-live="polite">
-        {focused !== undefined ? nodePath(focused) : ""}
+        {announce}
       </p>
 
-      {(zoomed || focusId) && (
+      {changed && (
         <button
           type="button"
           onClick={() => {
             focusNode(null);
-            setZoomed(false);
+            setChanged(false);
           }}
           aria-label="Вернуть исходный вид"
+          title="Исходный вид (Esc)"
           className="absolute bottom-[max(20px,env(safe-area-inset-bottom))] right-5 grid size-11 place-items-center rounded-full border text-[#eaf4ff] transition-transform duration-150 active:scale-95"
           style={{ borderColor: "rgba(143,233,255,.3)", background: "rgba(10,16,32,.6)", backdropFilter: "blur(12px)" }}
         >
@@ -614,13 +693,15 @@ export function NexusRadiant() {
           </svg>
         </button>
       )}
-      <p
-        className="pointer-events-none absolute inset-x-0 bottom-[max(24px,env(safe-area-inset-bottom))] text-center text-[12px] transition-opacity duration-700"
-        style={{ color: "rgba(234,244,255,.5)", opacity: touched ? 0 : 1 }}
-        aria-hidden
-      >
-        Приближайте и вращайте
-      </p>
+      {showHint && (
+        <p
+          className="pointer-events-none absolute inset-x-0 bottom-[max(24px,env(safe-area-inset-bottom))] text-center text-[12px] transition-opacity duration-700"
+          style={{ color: "rgba(234,244,255,.5)", opacity: touched ? 0 : 1 }}
+          aria-hidden
+        >
+          Приближайте и вращайте
+        </p>
+      )}
     </div>
   );
 }
